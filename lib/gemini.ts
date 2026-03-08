@@ -274,10 +274,17 @@ TASK: Find 3-8 significant patterns including trend lines. For each provide:
 - confidenceScore: integer 0–100 reflecting how textbook-clean the pattern is, volume confirmation, number of touches, and timeframe quality
 
 TREND LINES: Always look for and include the most dominant trend lines in the data:
-- uptrend_line: diagonal support line connecting rising swing lows. PRIORITIZE the longest-spanning line that touches the most swing lows — start from the earliest significant low in the dataset and connect through subsequent higher lows. Use type="uptrend_line", sentiment="bullish". Draw as a single polygon with EXACTLY 2 points: the EARLIEST swing low that defines the trend, and the LAST CONFIRMED touch before any breakout occurred.
-- downtrend_line: diagonal resistance line connecting falling swing highs. PRIORITIZE the longest-spanning line that touches the most swing highs. Use type="downtrend_line", sentiment="bearish". Draw as a single polygon with EXACTLY 2 points: the EARLIEST swing high that defines the trend, and the LAST CONFIRMED touch before any breakout.
-- DOMINANT TREND FIRST: A trend line spanning 60-100% of the dataset with 3+ touches is always more significant than a short 2-touch line. Identify the primary trend from the full dataset, not just the recent section.
-- If price has already broken out of a trend line, the second anchor should be the last touch before the breakout candle. The breakout will be visually obvious because the candle exceeds the drawn line.
+PROCEDURE for each trend line — follow these steps exactly:
+  Step 1. Find the earliest significant swing point (low for uptrend, high for downtrend) — this is point 1.
+  Step 2. Draw a provisional line from point 1 through the next qualifying swing point.
+  Step 3. Scan EVERY remaining bar to the right: check if each subsequent swing point lies within 0.5% of the extrapolated line. Every bar that qualifies extends the "last confirmed touch" forward.
+  Step 4. Continue scanning until you reach the end of the data OR until price clearly breaks through the line (close beyond the line by >1%). The LAST qualifying swing point before that break is point 2.
+  Step 5. Set the polygon points to [point1_timestamp, point1_price] and [point2_timestamp, point2_price]. Never use an intermediate touch as point 2 when a later touch exists.
+
+- uptrend_line: diagonal support line. type="uptrend_line", sentiment="bullish". Use the procedure above with swing lows.
+- downtrend_line: diagonal resistance line. type="downtrend_line", sentiment="bearish". Use the procedure above with swing highs.
+- DOMINANT TREND FIRST: A trend line spanning 60-100% of the dataset with 3+ touches is always more significant than a short 2-touch line covering only a recent portion.
+- If price has already broken out, the second anchor is the last valid touch before the breakout. The breakout will be visually obvious because the candle exceeds the drawn line.
 - Include only if there are at least 2 clear touch points with confirmation.
 
 Colors: bullish="${bullishColor}", bearish="${bearishColor}", neutral="${neutralColor}"

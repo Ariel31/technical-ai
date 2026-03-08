@@ -134,16 +134,31 @@ export default function TradingChart({
             }
           }
 
-          // ── 2. Curve outline ──────────────────────────────────────────────
+          // ── 2. Curve outline — two-pass glow for a modern neon look ─────
+          const lw = curve.lineWidth ?? 2;
+          // Pass 1: wide blurred halo
           c.save();
           c.beginPath();
           tracePath(pts);
           c.strokeStyle = curve.color;
-          c.lineWidth   = curve.lineWidth ?? 1.5;
+          c.lineWidth   = lw * 3;
+          c.lineJoin    = "round";
+          c.lineCap     = "round";
+          c.globalAlpha = 0.18;
+          c.shadowColor = curve.color;
+          c.shadowBlur  = 20;
+          c.stroke();
+          c.restore();
+          // Pass 2: crisp main line
+          c.save();
+          c.beginPath();
+          tracePath(pts);
+          c.strokeStyle = curve.color;
+          c.lineWidth   = lw;
           c.lineJoin    = "round";
           c.lineCap     = "round";
           c.shadowColor = curve.color;
-          c.shadowBlur  = 3;
+          c.shadowBlur  = 8;
           c.stroke();
           c.restore();
 
@@ -151,18 +166,25 @@ export default function TradingChart({
           pts.forEach((p) => {
             if (!p.dot) return;
             c.save();
-            // Glowing filled circle
+            // Outer glow halo
             c.beginPath();
-            c.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+            c.arc(p.x, p.y, 9, 0, Math.PI * 2);
+            c.fillStyle   = curve.color;
+            c.globalAlpha = 0.12;
+            c.fill();
+            // Main glowing filled circle
+            c.globalAlpha = 1;
+            c.beginPath();
+            c.arc(p.x, p.y, 4.5, 0, Math.PI * 2);
             c.fillStyle   = curve.color;
             c.shadowColor = curve.color;
-            c.shadowBlur  = 6;
+            c.shadowBlur  = 12;
             c.fill();
             // Dark outline ring for contrast against candles
             c.beginPath();
-            c.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+            c.arc(p.x, p.y, 4.5, 0, Math.PI * 2);
             c.strokeStyle = "#0a0a0f";
-            c.lineWidth   = 1;
+            c.lineWidth   = 1.5;
             c.shadowBlur  = 0;
             c.stroke();
             c.restore();
@@ -277,7 +299,7 @@ export default function TradingChart({
     const addLine = (price: number, color: string, title: string) => {
       const s = chart.addLineSeries({
         color,
-        lineWidth: 1,
+        lineWidth: 2,
         lineStyle: LineStyle.Dashed,
         priceLineVisible: false,
         lastValueVisible: true,
@@ -341,7 +363,7 @@ export default function TradingChart({
       pattern.lines.forEach((line) => {
         const series = chart.addLineSeries({
           color: line.color,
-          lineWidth: 1,
+          lineWidth: 2,
           lineStyle:
             line.style === "dashed"
               ? LineStyle.Dashed
@@ -372,7 +394,7 @@ export default function TradingChart({
         if (polygon.points.length < 2) return;
         const series = chart.addLineSeries({
           color: polygon.borderColor,
-          lineWidth: 1,
+          lineWidth: 2,
           lineStyle: LineStyle.Solid,
           priceLineVisible: false,
           lastValueVisible: false,
@@ -408,7 +430,7 @@ export default function TradingChart({
         ] as [number, string, LineStyle][]).forEach(([price, title, style]) => {
           const series = chart.addLineSeries({
             color: zone.color,
-            lineWidth: 1,
+            lineWidth: 2,
             lineStyle: style,
             priceLineVisible: false,
             lastValueVisible: !!title,
