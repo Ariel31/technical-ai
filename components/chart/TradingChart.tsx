@@ -1,0 +1,484 @@
+"use client";
+
+import { useEffect, useRef, useCallback } from "react";
+import {
+  createChart,
+  type IChartApi,
+  type ISeriesApi,
+  type CandlestickData,
+  type HistogramData,
+  type LineData,
+  type Time,
+  LineStyle,
+  PriceScaleMode,
+} from "lightweight-charts";
+import type { OHLCVBar, AnalysisResult, TechnicalPattern } from "@/lib/types";
+
+interface TradingChartProps {
+  bars: OHLCVBar[];
+  analysis: AnalysisResult | null;
+  activePatternIds: Set<string>;
+  keyLevels: AnalysisResult["keyLevels"] | null;
+  showKeyLevels: boolean;
+}
+
+const CHART_THEME = {
+  background: "#0a0a0f",
+  grid: "#1a1a2e",
+  text: "#94a3b8",
+  border: "#1e1e30",
+  upColor: "#22c55e",
+  downColor: "#ef4444",
+  volume: {
+    up: "rgba(34,197,94,0.3)",
+    down: "rgba(239,68,68,0.3)",
+  },
+};
+
+export default function TradingChart({
+  bars,
+  analysis,
+  activePatternIds,
+  keyLevels,
+  showKeyLevels,
+}: TradingChartProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef    = useRef<HTMLCanvasElement>(null);
+
+  const chartRef          = useRef<IChartApi | null>(null);
+  const candleSeriesRef   = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const volumeSeriesRef   = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const overlaySeriesRef  = useRef<ISeriesApi<"Line">[]>([]);
+  const keyLevelSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
+
+  // Refs so the timeScale subscription never closes over stale values
+  const analysisRef        = useRef(analysis);
+  const activePatternIdsRef = useRef(activePatternIds);
+  useEffect(() => { analysisRef.current = analysis; },         [analysis]);
+  useEffect(() => { activePatternIdsRef.current = activePatternIds; }, [activePatternIds]);
+
+  // ─── Canvas curve drawing (Catmull-Rom → cubic bezier) ────────────────────
+  const drawCurvesOnCanvas = useCallback(() => {
+    const canvas       = canvasRef.current;
+    const chart        = chartRef.current;
+    const candleSeries = candleSeriesRef.current;
+    if (!canvas || !chart || !candleSeries) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    // Size canvas to physical pixels for crisp rendering
+    const dpr = window.devicePixelRatio || 1;
+    const w   = canvas.offsetWidth;
+    const h   = canvas.offsetHeight;
+    if (w === 0 || h === 0) return;
+    canvas.width  = w * dpr;
+    canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+
+    const currentAnalysis  = analysisRef.current;
+    const currentActiveIds = activePatternIdsRef.current;
+    if (!currentAnalysis) return;
+
+    // Trace a Catmull-Rom → cubic bezier path through pixel points
+    const c = ctx; // non-null alias for use inside nested functions
+    function tracePath(pts: Array<{ x: number; y: number }>) {
+      c.moveTo(pts[0].x, pts[0].y);
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = pts[Math.max(0, i - 1)];
+        const p1 = pts[i];
+        const p2 = pts[i + 1];
+        const p3 = pts[Math.min(pts.length - 1, i + 2)];
+        c.bezierCurveTo(
+          p1.x + (p2.x - p0.x) / 6, p1.y + (p2.y - p0.y) / 6,
+          p2.x - (p3.x - p1.x) / 6, p2.y - (p3.y - p1.y) / 6,
+          p2.x, p2.y
+        );
+      }
+    }
+
+    type Pt = { x: number; y: number; dot: boolean };
+
+    currentAnalysis.patterns
+      .filter((p) => currentActiveIds.has(p.id))
+      .forEach((pattern) => {
+        (pattern.curves ?? []).forEach((curve) => {
+          const sorted = [...curve.points].sort((a, b) => a.time - b.time);
+
+          // Convert time+price → canvas pixel coords, preserving dot flag
+          const pts = sorted
+            .reduce<Pt[]>((acc, p) => {
+              const x = chart.timeScale().timeToCoordinate(p.time as Time);
+              const y = candleSeries.priceToCoordinate(p.price);
+              if (x !== null && y !== null) {
+                acc.push({ x: x as number, y: y as number, dot: !!p.dot });
+              }
+              return acc;
+            }, []);
+
+          if (pts.length < 2) return;
+
+          // ── 1. Filled area between curve and baseline ─────────────────────
+          if (curve.fill) {
+            const baseY = candleSeries.priceToCoordinate(curve.fill.basePrice);
+            if (baseY !== null) {
+              c.save();
+              c.beginPath();
+              tracePath(pts);
+              c.lineTo(pts[pts.length - 1].x, baseY as number);
+              c.lineTo(pts[0].x, baseY as number);
+              c.closePath();
+              c.fillStyle = curve.fill.color;
+              c.fill();
+              c.restore();
+            }
+          }
+
+          // ── 2. Curve outline ──────────────────────────────────────────────
+          c.save();
+          c.beginPath();
+          tracePath(pts);
+          c.strokeStyle = curve.color;
+          c.lineWidth   = curve.lineWidth ?? 1.5;
+          c.lineJoin    = "round";
+          c.lineCap     = "round";
+          c.shadowColor = curve.color;
+          c.shadowBlur  = 3;
+          c.stroke();
+          c.restore();
+
+          // ── 3. Dots at key turning points (peaks / troughs) ───────────────
+          pts.forEach((p) => {
+            if (!p.dot) return;
+            c.save();
+            // Glowing filled circle
+            c.beginPath();
+            c.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+            c.fillStyle   = curve.color;
+            c.shadowColor = curve.color;
+            c.shadowBlur  = 6;
+            c.fill();
+            // Dark outline ring for contrast against candles
+            c.beginPath();
+            c.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+            c.strokeStyle = "#0a0a0f";
+            c.lineWidth   = 1;
+            c.shadowBlur  = 0;
+            c.stroke();
+            c.restore();
+          });
+        });
+      });
+  }, []); // intentionally empty — reads latest state via refs
+
+  // ─── Init chart ───────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const chart = createChart(containerRef.current, {
+      layout: {
+        background: { color: CHART_THEME.background },
+        textColor: CHART_THEME.text,
+        fontFamily: "JetBrains Mono, Fira Code, monospace",
+        fontSize: 11,
+      },
+      grid: {
+        vertLines: { color: CHART_THEME.grid },
+        horzLines: { color: CHART_THEME.grid },
+      },
+      crosshair: {
+        vertLine: { color: "rgba(148,163,184,0.4)", width: 1, style: LineStyle.Dashed },
+        horzLine: { color: "rgba(148,163,184,0.4)", width: 1, style: LineStyle.Dashed },
+      },
+      rightPriceScale: {
+        borderColor: CHART_THEME.border,
+        mode: PriceScaleMode.Normal,
+      },
+      timeScale: {
+        borderColor: CHART_THEME.border,
+        timeVisible: true,
+        secondsVisible: false,
+        barSpacing: 6,
+        minBarSpacing: 2,
+      },
+      handleScroll: true,
+      handleScale: true,
+    });
+
+    chartRef.current = chart;
+
+    // Redraw curves whenever the user pans or zooms
+    chart.timeScale().subscribeVisibleTimeRangeChange(() => {
+      requestAnimationFrame(drawCurvesOnCanvas);
+    });
+
+    const candleSeries = chart.addCandlestickSeries({
+      upColor: CHART_THEME.upColor,
+      downColor: CHART_THEME.downColor,
+      borderUpColor: CHART_THEME.upColor,
+      borderDownColor: CHART_THEME.downColor,
+      wickUpColor: CHART_THEME.upColor,
+      wickDownColor: CHART_THEME.downColor,
+      priceLineVisible: true,
+      priceLineColor: "rgba(148,163,184,0.5)",
+      priceLineWidth: 1,
+      priceLineStyle: LineStyle.Dashed,
+    });
+    candleSeriesRef.current = candleSeries;
+
+    const volumeSeries = chart.addHistogramSeries({
+      priceFormat: { type: "volume" },
+      priceScaleId: "volume",
+    });
+    chart.priceScale("volume").applyOptions({
+      scaleMargins: { top: 0.85, bottom: 0 },
+    });
+    volumeSeriesRef.current = volumeSeries;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        chart.applyOptions({
+          width: entry.contentRect.width,
+          height: entry.contentRect.height,
+        });
+        requestAnimationFrame(drawCurvesOnCanvas);
+      }
+    });
+    observer.observe(containerRef.current);
+
+    return () => {
+      observer.disconnect();
+      chart.remove();
+      chartRef.current        = null;
+      candleSeriesRef.current = null;
+      volumeSeriesRef.current = null;
+      keyLevelSeriesRef.current = [];
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawCurvesOnCanvas]);
+
+  // ─── Key level lines (supports / resistances) ─────────────────────────────
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    // Remove previous key level series
+    keyLevelSeriesRef.current.forEach((s) => { try { chart.removeSeries(s); } catch {} });
+    keyLevelSeriesRef.current = [];
+
+    if (!keyLevels || !showKeyLevels || bars.length === 0) return;
+
+    const startTime = bars[0].time as Time;
+    const endTime   = bars[bars.length - 1].time as Time;
+
+    const addLine = (price: number, color: string, title: string) => {
+      const s = chart.addLineSeries({
+        color,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        priceLineVisible: false,
+        lastValueVisible: true,
+        title,
+        crosshairMarkerVisible: false,
+      });
+      s.setData([{ time: startTime, value: price }, { time: endTime, value: price }]);
+      keyLevelSeriesRef.current.push(s);
+    };
+
+    keyLevels.supports.forEach((p)    => addLine(p, "rgba(34,197,94,0.6)",  "S"));
+    keyLevels.resistances.forEach((p) => addLine(p, "rgba(239,68,68,0.6)",  "R"));
+  }, [keyLevels, showKeyLevels, bars]);
+
+  // ─── Feed OHLCV data ──────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!candleSeriesRef.current || !volumeSeriesRef.current || bars.length === 0) return;
+
+    const candleData: CandlestickData[] = bars.map((b) => ({
+      time: b.time as Time,
+      open: b.open,
+      high: b.high,
+      low: b.low,
+      close: b.close,
+    }));
+
+    const volumeData: HistogramData[] = bars.map((b) => ({
+      time: b.time as Time,
+      value: b.volume,
+      color: b.close >= b.open ? CHART_THEME.volume.up : CHART_THEME.volume.down,
+    }));
+
+    candleSeriesRef.current.setData(candleData);
+    volumeSeriesRef.current.setData(volumeData);
+    chartRef.current?.timeScale().fitContent();
+  }, [bars]);
+
+  // ─── Draw pattern overlays ────────────────────────────────────────────────
+
+  const clearOverlays = useCallback(() => {
+    if (!chartRef.current) return;
+    overlaySeriesRef.current.forEach((s) => {
+      try {
+        chartRef.current!.removeSeries(s);
+      } catch {
+        // Already removed
+      }
+    });
+    overlaySeriesRef.current = [];
+  }, []);
+
+  const drawPattern = useCallback(
+    (pattern: TechnicalPattern) => {
+      if (!chartRef.current || bars.length === 0) return;
+      const chart     = chartRef.current;
+      const startTime = bars[0].time as Time;
+      const endTime   = bars[bars.length - 1].time as Time;
+
+      // Horizontal lines (support, resistance, necklines)
+      pattern.lines.forEach((line) => {
+        const series = chart.addLineSeries({
+          color: line.color,
+          lineWidth: 1,
+          lineStyle:
+            line.style === "dashed"
+              ? LineStyle.Dashed
+              : line.style === "dotted"
+              ? LineStyle.Dotted
+              : LineStyle.Solid,
+          priceLineVisible: false,
+          lastValueVisible: !!line.label,
+          title: line.label ?? "",
+          crosshairMarkerVisible: false,
+        });
+        const data: LineData[] = [
+          { time: startTime, value: line.price },
+          { time: endTime,   value: line.price },
+        ];
+        series.setData(data);
+        overlaySeriesRef.current.push(series);
+      });
+
+      // Trendlines / polygon outlines (wedges, flags)
+      // Channels/wedges/flags extend to the last bar so breakouts are visible.
+      // Trend lines do NOT extend — they stop at the last confirmed touch point.
+      const EXTENDABLE_TYPES = new Set([
+        "ascending_channel", "descending_channel", "horizontal_channel",
+        "falling_wedge", "rising_wedge", "bull_flag", "bear_flag",
+      ]);
+      pattern.polygons.forEach((polygon) => {
+        if (polygon.points.length < 2) return;
+        const series = chart.addLineSeries({
+          color: polygon.borderColor,
+          lineWidth: 1,
+          lineStyle: LineStyle.Solid,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          title: polygon.label ?? "",
+          crosshairMarkerVisible: false,
+        });
+        let data: LineData[] = polygon.points
+          .map((p) => ({ time: p.time as Time, value: p.price }))
+          .sort((a, b) => (a.time as number) - (b.time as number))
+          .filter((p, i, arr) => i === 0 || (p.time as number) !== (arr[i - 1].time as number));
+
+        // Extend channel/wedge lines to the last bar so breakouts are visible
+        if (EXTENDABLE_TYPES.has(pattern.type) && data.length >= 2) {
+          const p0 = data[0];
+          const p1 = data[data.length - 1];
+          const lastT = endTime as number;
+          if ((p1.time as number) < lastT) {
+            const slope = (p1.value - p0.value) / ((p1.time as number) - (p0.time as number));
+            const extPrice = +(p1.value + slope * (lastT - (p1.time as number))).toFixed(2);
+            data = [...data, { time: endTime, value: extPrice }];
+          }
+        }
+
+        series.setData(data);
+        overlaySeriesRef.current.push(series);
+      });
+
+      // Zone boundaries (top + bottom dashed pair)
+      pattern.zones.forEach((zone) => {
+        ([
+          [zone.priceTop,    zone.label ?? "", LineStyle.Solid],
+          [zone.priceBottom, "",               LineStyle.Dashed],
+        ] as [number, string, LineStyle][]).forEach(([price, title, style]) => {
+          const series = chart.addLineSeries({
+            color: zone.color,
+            lineWidth: 1,
+            lineStyle: style,
+            priceLineVisible: false,
+            lastValueVisible: !!title,
+            title,
+            crosshairMarkerVisible: false,
+          });
+          series.setData([
+            { time: startTime, value: price },
+            { time: endTime,   value: price },
+          ]);
+          overlaySeriesRef.current.push(series);
+        });
+      });
+
+      // Markers on the candle series
+      if (pattern.markers.length > 0 && candleSeriesRef.current) {
+        const existing   = candleSeriesRef.current.markers?.() ?? [];
+        const newMarkers = pattern.markers.map((m) => ({
+          time:     m.time as Time,
+          position: m.position as "aboveBar" | "belowBar",
+          color:    m.color,
+          shape:    m.shape as "arrowUp" | "arrowDown" | "circle" | "square",
+          text:     m.text ?? "",
+          size:     1,
+        }));
+        const combined = [...existing, ...newMarkers].sort(
+          (a, b) => (a.time as number) - (b.time as number)
+        );
+        candleSeriesRef.current.setMarkers(combined);
+      }
+    },
+    [bars]
+  );
+
+  useEffect(() => {
+    clearOverlays();
+    if (candleSeriesRef.current) {
+      candleSeriesRef.current.setMarkers([]);
+    }
+
+    // Clear canvas
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext("2d");
+      ctx?.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    if (!analysis) return;
+
+    analysis.patterns
+      .filter((p) => activePatternIds.has(p.id))
+      .forEach(drawPattern);
+
+    // Draw curves after the chart series settle
+    requestAnimationFrame(drawCurvesOnCanvas);
+  }, [analysis, activePatternIds, clearOverlays, drawPattern, drawCurvesOnCanvas]);
+
+  return (
+    <div className="relative w-full h-full">
+      <div
+        ref={containerRef}
+        className="w-full h-full"
+        style={{ background: CHART_THEME.background }}
+      />
+      {/* Canvas overlay for smooth pattern curves — pointer-events: none so chart interaction works */}
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 pointer-events-none"
+        style={{ width: "100%", height: "100%" }}
+      />
+    </div>
+  );
+}
