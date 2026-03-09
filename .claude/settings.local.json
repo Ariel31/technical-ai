@@ -43,7 +43,8 @@
       "Bash(node --input-type=module -e \"import * as yf from ''yahoo-finance2''; const d = yf.default; console.log\\(typeof d, Object.getOwnPropertyNames\\(Object.getPrototypeOf\\(d\\)\\).filter\\(k=>k!=''constructor''\\).join\\(''\\\\n''\\)\\)\")",
       "Bash(node --input-type=module:*)",
       "Bash(npm run build)",
-      "Bash(taskkill /F /IM node.exe)"
+      "Bash(taskkill /F /IM node.exe)",
+      "Bash(node -e \":*)"
     ]
   }
 }

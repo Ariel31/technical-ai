@@ -166,3 +166,107 @@ export type AppStatus =
   | "analyzing"
   | "done"
   | "error";
+
+// ─── Screener Types ────────────────────────────────────────────────────────────
+
+export type MarketTrend = "uptrend" | "downtrend" | "sideways";
+
+export interface MarketRegime {
+  spyPrice: number;
+  spySma200: number;
+  aboveSma200: boolean;
+  trend: MarketTrend;
+  return60d: number;   // SPY 60-day % return (RS benchmark)
+  note: string;        // human-readable summary
+}
+
+export type ScreenerPattern =
+  | "cup_and_handle"
+  | "double_bottom"
+  | "bull_flag"
+  | "consolidation_breakout"
+  | "sma_bounce"
+  | "momentum_continuation"
+  | "none";
+
+export interface ScreenerCandidate {
+  // Identity
+  ticker: string;
+  name: string;
+  price: number;
+
+  // Moving averages
+  sma20: number;
+  sma50: number;
+  sma150: number;
+  sma200: number;
+  aboveSma20: boolean;
+  aboveSma50: boolean;
+  aboveSma150: boolean;
+  aboveSma200: boolean;
+
+  // Momentum
+  change5d: number;
+  change20d: number;
+  change60d: number;
+  relativeStrength: number;     // change60d - spyReturn60d
+
+  // Oscillator + volatility
+  rsi14: number;
+  atr14: number;
+  atr14Pct: number;             // atr14 / price * 100
+
+  // Volume
+  volumeRatio: number;          // latest vol / 50-day avg
+
+  // Range / contraction
+  range10d: number;             // (high10d - low10d) / price * 100
+  isContracting: boolean;
+
+  // Pattern
+  pattern: ScreenerPattern;
+  breakoutLevel: number;
+  breakoutDistance: number;     // % from price to breakoutLevel
+  consolidationDays: number;
+
+  // Trade setup (pre-calculated)
+  entry: number;
+  stopLevel: number;            // entry - 1.5 * atr14
+  targetLevel: number;          // entry + 3 * (entry - stopLevel)
+  riskReward: number;
+
+  // Score components (0-100 each)
+  breakoutStrength: number;
+  volumeExpansion: number;
+  trendAlignment: number;
+  volatilityContraction: number;
+  rsRank: number;               // 0-100 percentile, filled by assignRSRanks()
+
+  // Final weighted score
+  score: number;
+}
+
+export interface ScreenerPick {
+  ticker: string;
+  companyName: string;
+  direction: "long" | "short";
+  confidence: number;       // 0-100
+  currentPrice: number;
+  entry: number;
+  target: number;
+  stopLoss: number;
+  potentialReturn: number;  // % from entry to target
+  riskReward: number;       // e.g. 2.3 means risk 1 to make 2.3
+  primaryPattern: string;   // e.g. "Bull Flag", "SMA50 Breakout"
+  triggers: string[];       // e.g. ["RSI 58", "Volume 1.9x avg"]
+  reasoning: string;
+}
+
+export interface ScreenerResult {
+  screenedAt: string;
+  totalScanned: number;
+  filteredCount: number;
+  picks: ScreenerPick[];
+}
+
+export type ScreenerStatus = "idle" | "scanning" | "analyzing" | "done" | "error";

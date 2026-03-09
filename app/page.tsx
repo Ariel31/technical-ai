@@ -2,11 +2,13 @@
 
 import dynamic from "next/dynamic";
 import { useState, useCallback } from "react";
-import { Activity, Github, Brain, Loader2 } from "lucide-react";
+import { Activity, Github, Brain, Loader2, Zap } from "lucide-react";
 import type { AnalysisResult, AppStatus, OHLCVBar, StockDataResponse } from "@/lib/types";
 import TickerInput from "@/components/ui/TickerInput";
 import AnalysisPanel from "@/components/ui/AnalysisPanel";
 import StatusOverlay from "@/components/ui/StatusOverlay";
+import ScreenerPanel from "@/components/ui/ScreenerPanel";
+import { cn } from "@/lib/utils";
 
 // TradingChart uses browser APIs — load client-side only
 const TradingChart = dynamic(() => import("@/components/chart/TradingChart"), {
@@ -14,7 +16,11 @@ const TradingChart = dynamic(() => import("@/components/chart/TradingChart"), {
   loading: () => <div className="w-full h-full bg-[#0a0a0f] rounded-xl animate-pulse" />,
 });
 
+type Tab = "chart" | "screener";
+
 export default function HomePage() {
+  const [activeTab, setActiveTab] = useState<Tab>("chart");
+
   const [status, setStatus] = useState<AppStatus>("idle");
   const [error, setError] = useState<string | undefined>();
   const [ticker, setTicker] = useState<string>("");
@@ -53,7 +59,6 @@ export default function HomePage() {
     setMeta(stockData.meta);
 
     // ── Step 2: AI Analysis ───────────────────────────────────────────────────
-    // Chart is now visible; AI runs in background with a glass overlay
     setStatus("analyzing");
 
     try {
@@ -82,11 +87,10 @@ export default function HomePage() {
       } catch {
         throw new Error("The AI returned an unexpected response. Please try again.");
       }
-      // Key level patterns (support/resistance) are always on by default
+
       const srIds = result.patterns
         .filter((p) => p.type === "support" || p.type === "resistance")
         .map((p) => p.id);
-      // For complex patterns: show only the single most confident one
       const nonSR = result.patterns.filter((p) => p.type !== "support" && p.type !== "resistance");
       const bestNonSR =
         nonSR.find((p) => p.reliability === "high") ??
@@ -97,11 +101,16 @@ export default function HomePage() {
       setAnalysis(result);
       setStatus("done");
     } catch (err) {
-      // Chart stays visible — just no AI overlay
       setStatus("done");
       setError(err instanceof Error ? err.message : "AI analysis failed");
     }
   }, []);
+
+  // Called from ScreenerPanel "Analyze Chart" button
+  function handleAnalyzeFromScreener(t: string) {
+    setActiveTab("chart");
+    handleAnalyze(t);
+  }
 
   function handleTogglePattern(id: string) {
     setActivePatternIds((prev) => {
@@ -123,16 +132,17 @@ export default function HomePage() {
     setShowKeyLevels(visible);
   }
 
-  // Full opaque overlay: before any chart data exists
-  const showFullOverlay = status === "idle" || status === "fetching_data" || (status === "error" && bars.length === 0);
-  // Frosted glass overlay: chart loaded, AI still thinking
+  const showFullOverlay =
+    status === "idle" ||
+    status === "fetching_data" ||
+    (status === "error" && bars.length === 0);
   const showAnalysisGlass = status === "analyzing" && bars.length > 0;
 
   return (
     <div className="flex flex-col h-dvh overflow-hidden">
       {/* ── Top Nav ──────────────────────────────────────────────────────────── */}
       <header className="shrink-0 border-b border-border bg-surface/80 backdrop-blur-md z-20">
-        <div className="max-w-[1800px] mx-auto px-4 py-3 flex items-center justify-between gap-4">
+        <div className="max-w-[1800px] mx-auto px-4 py-3 flex items-center gap-4">
           {/* Logo */}
           <div className="flex items-center gap-2.5 shrink-0">
             <div className="p-1.5 rounded-lg bg-accent/10 border border-accent/20">
@@ -146,17 +156,50 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Ticker input — center */}
-          <div className="flex-1 max-w-xl">
-            <TickerInput
-              onAnalyze={handleAnalyze}
-              isLoading={status === "fetching_data" || status === "analyzing"}
-            />
-          </div>
+          {/* Tab switcher */}
+          <nav className="flex items-center gap-0.5 p-0.5 rounded-lg border border-border bg-surface/60 shrink-0">
+            <button
+              onClick={() => setActiveTab("chart")}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                activeTab === "chart"
+                  ? "bg-accent/20 text-accent"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Activity className="w-3.5 h-3.5" />
+              Chart Analysis
+            </button>
+            <button
+              onClick={() => setActiveTab("screener")}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                activeTab === "screener"
+                  ? "bg-accent/20 text-accent"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Zap className="w-3.5 h-3.5" />
+              Smart Screener
+            </button>
+          </nav>
+
+          {/* Ticker input — only visible in chart tab */}
+          {activeTab === "chart" && (
+            <div className="flex-1 max-w-xl">
+              <TickerInput
+                onAnalyze={handleAnalyze}
+                isLoading={status === "fetching_data" || status === "analyzing"}
+              />
+            </div>
+          )}
+
+          {/* Spacer when screener tab hides ticker input */}
+          {activeTab === "screener" && <div className="flex-1" />}
 
           {/* Right side */}
           <div className="flex items-center gap-3 shrink-0">
-            {meta && (status === "done" || status === "analyzing") && (
+            {activeTab === "chart" && meta && (status === "done" || status === "analyzing") && (
               <div className="hidden md:flex flex-col items-end">
                 <span className="text-sm font-semibold text-foreground">{ticker}</span>
                 <span className="text-xs text-muted-foreground truncate max-w-[140px]">{meta.name}</span>
@@ -176,85 +219,91 @@ export default function HomePage() {
 
       {/* ── Main Layout ──────────────────────────────────────────────────────── */}
       <main className="flex-1 min-h-0 overflow-hidden">
-        <div className="h-full max-w-[1800px] mx-auto flex">
 
-          {/* Chart Area */}
-          <div className="flex-1 relative p-3 min-w-0 min-h-0 flex flex-col">
-            <div className="relative flex-1 min-h-0 rounded-xl border border-border overflow-hidden">
+        {/* ── Chart Tab ──────────────────────────────────────────────────────── */}
+        {activeTab === "chart" && (
+          <div className="h-full max-w-[1800px] mx-auto flex">
 
-              {/* Chart — renders as soon as bars are available */}
-              {bars.length > 0 && (
-                <TradingChart
-                  bars={bars}
-                  analysis={analysis}
-                  activePatternIds={activePatternIds}
-                  keyLevels={analysis?.keyLevels ?? null}
-                  showKeyLevels={showKeyLevels}
-                />
-              )}
+            {/* Chart Area */}
+            <div className="flex-1 relative p-3 min-w-0 min-h-0 flex flex-col">
+              <div className="relative flex-1 min-h-0 rounded-xl border border-border overflow-hidden">
 
-              {/* Full opaque overlay — idle / fetching / hard error */}
-              {showFullOverlay && (
-                <StatusOverlay status={status} error={error} />
-              )}
+                {bars.length > 0 && (
+                  <TradingChart
+                    bars={bars}
+                    analysis={analysis}
+                    activePatternIds={activePatternIds}
+                    keyLevels={analysis?.keyLevels ?? null}
+                    showKeyLevels={showKeyLevels}
+                  />
+                )}
 
-              {/* ── Glass overlay while AI analyzes ──────────────────────── */}
-              {showAnalysisGlass && (
-                <div className="absolute inset-0 z-10 flex items-center justify-center backdrop-blur-[3px] bg-background/25">
-                  <div className="flex flex-col items-center gap-4 px-8 py-6 rounded-2xl border border-white/10 bg-surface/70 backdrop-blur-md shadow-2xl">
-                    <div className="relative flex items-center justify-center">
-                      <Loader2 className="absolute w-14 h-14 text-accent/20 animate-spin" />
-                      <Brain className="w-7 h-7 text-accent" />
-                    </div>
-                    <div className="text-center">
-                      <p className="text-sm font-semibold text-foreground">Analyzing chart patterns...</p>
-                      <p className="text-xs text-muted-foreground mt-1">AI is scanning for technical setups</p>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono px-3 py-1.5 rounded-lg border border-border/60 bg-surface/80">
-                      <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-                      Gemini 2.5 Flash
+                {showFullOverlay && (
+                  <StatusOverlay status={status} error={error} />
+                )}
+
+                {showAnalysisGlass && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center backdrop-blur-[3px] bg-background/25">
+                    <div className="flex flex-col items-center gap-4 px-8 py-6 rounded-2xl border border-white/10 bg-surface/70 backdrop-blur-md shadow-2xl">
+                      <div className="relative flex items-center justify-center">
+                        <Loader2 className="absolute w-14 h-14 text-accent/20 animate-spin" />
+                        <Brain className="w-7 h-7 text-accent" />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-semibold text-foreground">Analyzing chart patterns...</p>
+                        <p className="text-xs text-muted-foreground mt-1">AI is scanning for technical setups</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono px-3 py-1.5 rounded-lg border border-border/60 bg-surface/80">
+                        <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                        Gemini 2.0 Flash
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Non-blocking error banner when chart loaded but AI failed */}
-              {status === "done" && error && bars.length > 0 && (
-                <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-4 py-2 rounded-full border border-bear/30 bg-bear/10 backdrop-blur-sm text-xs text-bear font-medium whitespace-nowrap">
-                  {error}
-                </div>
-              )}
+                {status === "done" && error && bars.length > 0 && (
+                  <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-4 py-2 rounded-full border border-bear/30 bg-bear/10 backdrop-blur-sm text-xs text-bear font-medium whitespace-nowrap">
+                    {error}
+                  </div>
+                )}
 
-              {/* Ticker badge when chart is live */}
-              {(status === "done" || status === "analyzing") && bars.length > 0 && (
-                <div className="absolute top-3 left-3 z-10 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface/80 backdrop-blur-sm border border-border">
-                  <div className="w-1.5 h-1.5 rounded-full bg-bull animate-pulse" />
-                  <span className="text-xs font-mono font-semibold text-foreground">{ticker}</span>
-                  {meta && (
-                    <span className="text-xs text-muted-foreground hidden sm:inline">
-                      • {meta.exchange} • {meta.currency}
-                    </span>
-                  )}
-                </div>
-              )}
+                {(status === "done" || status === "analyzing") && bars.length > 0 && (
+                  <div className="absolute top-3 left-3 z-10 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface/80 backdrop-blur-sm border border-border">
+                    <div className="w-1.5 h-1.5 rounded-full bg-bull animate-pulse" />
+                    <span className="text-xs font-mono font-semibold text-foreground">{ticker}</span>
+                    {meta && (
+                      <span className="text-xs text-muted-foreground hidden sm:inline">
+                        • {meta.exchange} • {meta.currency}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
 
-          {/* Analysis Sidebar */}
-          {analysis && status === "done" && (
-            <aside className="w-80 shrink-0 border-l border-border overflow-y-auto bg-surface/50 backdrop-blur-sm p-4 animate-fade-in">
-              <AnalysisPanel
-                analysis={analysis}
-                activePatternIds={activePatternIds}
-                onTogglePattern={handleTogglePattern}
-                onToggleAll={handleToggleAll}
-                onToggleKeyLevels={handleToggleKeyLevels}
-                showKeyLevels={showKeyLevels}
-                currency={meta?.currency ?? "USD"}
-              />
-            </aside>
-          )}
-        </div>
+            {/* Analysis Sidebar */}
+            {analysis && status === "done" && (
+              <aside className="w-80 shrink-0 border-l border-border overflow-y-auto bg-surface/50 backdrop-blur-sm p-4 animate-fade-in">
+                <AnalysisPanel
+                  analysis={analysis}
+                  activePatternIds={activePatternIds}
+                  onTogglePattern={handleTogglePattern}
+                  onToggleAll={handleToggleAll}
+                  onToggleKeyLevels={handleToggleKeyLevels}
+                  showKeyLevels={showKeyLevels}
+                  currency={meta?.currency ?? "USD"}
+                />
+              </aside>
+            )}
+          </div>
+        )}
+
+        {/* ── Screener Tab ────────────────────────────────────────────────────── */}
+        {activeTab === "screener" && (
+          <div className="h-full overflow-y-auto">
+            <ScreenerPanel onAnalyze={handleAnalyzeFromScreener} />
+          </div>
+        )}
       </main>
     </div>
   );
