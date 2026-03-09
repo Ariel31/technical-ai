@@ -44,7 +44,11 @@
       "Bash(node --input-type=module:*)",
       "Bash(npm run build)",
       "Bash(taskkill /F /IM node.exe)",
-      "Bash(node -e \":*)"
+      "Bash(node -e \":*)",
+      "Bash(npm install @supabase/supabase-js)",
+      "Bash(npm install postgres)",
+      "Bash(npm uninstall @supabase/supabase-js)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:cdqyMIgrY2Tl30Mb@db.ewnpbacrdysnsqbhaiuw.supabase.co:5432/postgres\" node scripts/migrate.mjs)"
     ]
   }
 }

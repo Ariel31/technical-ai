@@ -2,12 +2,14 @@
 
 import dynamic from "next/dynamic";
 import { useState, useCallback } from "react";
-import { Activity, Github, Brain, Loader2, Zap } from "lucide-react";
+import { Activity, Github, Brain, Loader2, Zap, Bookmark, BookmarkCheck } from "lucide-react";
 import type { AnalysisResult, AppStatus, OHLCVBar, StockDataResponse } from "@/lib/types";
 import TickerInput from "@/components/ui/TickerInput";
 import AnalysisPanel from "@/components/ui/AnalysisPanel";
 import StatusOverlay from "@/components/ui/StatusOverlay";
 import ScreenerPanel from "@/components/ui/ScreenerPanel";
+import WatchlistPanel from "@/components/ui/WatchlistPanel";
+import { useWatchlist } from "@/hooks/useWatchlist";
 import { cn } from "@/lib/utils";
 
 // TradingChart uses browser APIs — load client-side only
@@ -30,13 +32,38 @@ export default function HomePage() {
   const [activePatternIds, setActivePatternIds] = useState<Set<string>>(new Set());
   const [showKeyLevels, setShowKeyLevels] = useState(true);
 
+  const { watchlist, addToWatchlist, removeFromWatchlist, reanalyze, loadCachedAnalysis } =
+    useWatchlist();
+
+  const isInWatchlist = watchlist.some((item) => item.ticker === ticker);
+
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+
+  function applyAnalysisResult(result: AnalysisResult) {
+    const srIds = result.patterns
+      .filter((p) => p.type === "support" || p.type === "resistance")
+      .map((p) => p.id);
+    const nonSR = result.patterns.filter(
+      (p) => p.type !== "support" && p.type !== "resistance"
+    );
+    const bestNonSR =
+      nonSR.find((p) => p.reliability === "high") ??
+      nonSR.find((p) => p.reliability === "medium") ??
+      nonSR[0];
+    setActivePatternIds(new Set([...srIds, ...(bestNonSR ? [bestNonSR.id] : [])]));
+    setAnalysis(result);
+    setStatus("done");
+  }
+
+  // ── Main analysis flow ────────────────────────────────────────────────────────
+
   const handleAnalyze = useCallback(async (inputTicker: string) => {
     setTicker(inputTicker);
     setError(undefined);
     setAnalysis(null);
     setActivePatternIds(new Set());
 
-    // ── Step 1: Fetch OHLCV data ──────────────────────────────────────────────
+    // Step 1: Fetch OHLCV
     setStatus("fetching_data");
     let stockData: StockDataResponse;
 
@@ -58,18 +85,14 @@ export default function HomePage() {
     setBars(stockData.bars);
     setMeta(stockData.meta);
 
-    // ── Step 2: AI Analysis ───────────────────────────────────────────────────
+    // Step 2: AI Analysis
     setStatus("analyzing");
 
     try {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ticker: inputTicker,
-          bars: stockData.bars,
-          indicators: [],
-        }),
+        body: JSON.stringify({ ticker: inputTicker, bars: stockData.bars, indicators: [] }),
       });
 
       if (!res.ok) {
@@ -88,29 +111,54 @@ export default function HomePage() {
         throw new Error("The AI returned an unexpected response. Please try again.");
       }
 
-      const srIds = result.patterns
-        .filter((p) => p.type === "support" || p.type === "resistance")
-        .map((p) => p.id);
-      const nonSR = result.patterns.filter((p) => p.type !== "support" && p.type !== "resistance");
-      const bestNonSR =
-        nonSR.find((p) => p.reliability === "high") ??
-        nonSR.find((p) => p.reliability === "medium") ??
-        nonSR[0];
-      const defaultIds = [...srIds, ...(bestNonSR ? [bestNonSR.id] : [])];
-      setActivePatternIds(new Set(defaultIds));
-      setAnalysis(result);
-      setStatus("done");
+      applyAnalysisResult(result);
+
+      // Save to DB in background so watchlist can load it instantly later
+      fetch(`/api/analysis/${encodeURIComponent(inputTicker)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bars: stockData.bars, result, meta: stockData.meta }),
+      }).catch(() => { /* non-fatal */ });
+
     } catch (err) {
       setStatus("done");
       setError(err instanceof Error ? err.message : "AI analysis failed");
     }
   }, []);
 
-  // Called from ScreenerPanel "Analyze Chart" button
+  // ── Load cached analysis from watchlist item click ────────────────────────────
+
+  const handleWatchlistSelect = useCallback(
+    async (t: string) => {
+      setActiveTab("chart");
+      setTicker(t);
+      setError(undefined);
+      setAnalysis(null);
+      setActivePatternIds(new Set());
+      setStatus("fetching_data");
+
+      const cached = await loadCachedAnalysis(t);
+      if (!cached) {
+        // Cache miss — fall back to live analysis
+        handleAnalyze(t);
+        return;
+      }
+
+      setBars(cached.bars);
+      setMeta(cached.meta);
+      applyAnalysisResult(cached.result);
+    },
+    [loadCachedAnalysis, handleAnalyze]
+  );
+
+  // ── Screener → Chart ──────────────────────────────────────────────────────────
+
   function handleAnalyzeFromScreener(t: string) {
     setActiveTab("chart");
     handleAnalyze(t);
   }
+
+  // ── Pattern toggle handlers ───────────────────────────────────────────────────
 
   function handleTogglePattern(id: string) {
     setActivePatternIds((prev) => {
@@ -205,6 +253,28 @@ export default function HomePage() {
                 <span className="text-xs text-muted-foreground truncate max-w-[140px]">{meta.name}</span>
               </div>
             )}
+
+            {/* Add to Watchlist button — shown when analysis is done */}
+            {activeTab === "chart" && status === "done" && ticker && meta && (
+              <button
+                onClick={() => !isInWatchlist && addToWatchlist(ticker, meta.name)}
+                disabled={isInWatchlist}
+                title={isInWatchlist ? "Already in watchlist" : "Add to watchlist"}
+                className={cn(
+                  "p-2 rounded-lg border transition-colors",
+                  isInWatchlist
+                    ? "border-accent/30 text-accent bg-accent/10 cursor-default"
+                    : "border-border text-muted-foreground hover:text-accent hover:border-accent/50"
+                )}
+              >
+                {isInWatchlist ? (
+                  <BookmarkCheck className="w-4 h-4" />
+                ) : (
+                  <Bookmark className="w-4 h-4" />
+                )}
+              </button>
+            )}
+
             <a
               href="https://github.com"
               target="_blank"
@@ -223,6 +293,16 @@ export default function HomePage() {
         {/* ── Chart Tab ──────────────────────────────────────────────────────── */}
         {activeTab === "chart" && (
           <div className="h-full max-w-[1800px] mx-auto flex">
+
+            {/* Watchlist Left Sidebar */}
+            <WatchlistPanel
+              watchlist={watchlist}
+              activeTicker={ticker || undefined}
+              onSelect={handleWatchlistSelect}
+              onAddToWatchlist={addToWatchlist}
+              onRemove={removeFromWatchlist}
+              onReanalyze={reanalyze}
+            />
 
             {/* Chart Area */}
             <div className="flex-1 relative p-3 min-w-0 min-h-0 flex flex-col">

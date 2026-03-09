@@ -270,3 +270,22 @@ export interface ScreenerResult {
 }
 
 export type ScreenerStatus = "idle" | "scanning" | "analyzing" | "done" | "error";
+
+// ─── Watchlist Types ────────────────────────────────────────────────────────────
+
+export interface WatchlistItem {
+  ticker: string;
+  name: string;
+  status: "pending" | "analyzing" | "done" | "error";
+  addedAt: number;       // Date.now()
+  errorMessage?: string;
+}
+
+export interface CachedAnalysis {
+  ticker: string;
+  timeframe: string;
+  analyzedAt: string;
+  bars: OHLCVBar[];
+  result: AnalysisResult;
+  meta: { name: string; currency: string; exchange: string };
+}
