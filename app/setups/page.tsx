@@ -95,7 +95,7 @@ function buildSignals(c: CandidateSummary): string[] {
   if (c.change5d >= 4)            s.push(`+${c.change5d.toFixed(1)}% this week`);
   else if (c.change20d >= 8)      s.push(`+${c.change20d.toFixed(1)}% this month`);
 
-  return s.slice(0, 3); // max 3 signals per card
+  return s.slice(0, 3);
 }
 
 // ─── Candidate card ───────────────────────────────────────────────────────────
@@ -223,7 +223,6 @@ export default function SetupsPage() {
             )}
           </div>
 
-          {/* Back to top picks */}
           <Link
             href="/"
             className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -271,7 +270,7 @@ export default function SetupsPage() {
           </div>
         )}
 
-        {/* Controls */}
+        {/* Controls + grid */}
         {!loading && candidates.length > 0 && (
           <>
             <div className="flex flex-wrap items-center gap-3">
@@ -330,12 +329,10 @@ export default function SetupsPage() {
               </div>
             </div>
 
-            {/* Results count */}
             <p className="text-xs text-muted-foreground -mt-2">
               Showing {sorted.length} of {candidates.length} setups
             </p>
 
-            {/* Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {sorted.map((c) => (
                 <CandidateCard key={c.ticker} c={c} />

@@ -426,38 +426,6 @@ export default function TradingChart({
       // breakout arrow clearly visible against the projected line.
       const TRENDLINE_TYPES = new Set(["downtrend_line", "uptrend_line"]);
 
-      // Wick snapping: for each AI anchor timestamp, search a ±5-bar window
-      // and pick the bar with the extreme wick (highest high for downtrend,
-      // lowest low for uptrend). This corrects AI timestamps that land on
-      // a body rather than on the actual swing high/low.
-      const sortedBars = [...bars].sort((a, b) => a.time - b.time);
-      function wickSnap(time: number, type: string): number {
-        // Binary-search for approximate index
-        let lo = 0,
-          hi = sortedBars.length - 1,
-          mid = 0;
-        while (lo <= hi) {
-          mid = (lo + hi) >> 1;
-          if (sortedBars[mid].time < time) lo = mid + 1;
-          else hi = mid - 1;
-        }
-        const WINDOW = 5;
-        const from = Math.max(0, lo - WINDOW);
-        const to = Math.min(sortedBars.length - 1, lo + WINDOW);
-        const window = sortedBars.slice(from, to + 1);
-        if (type === "downtrend_line") {
-          return window.reduce(
-            (best, b) => (b.high > best ? b.high : best),
-            window[0].high,
-          );
-        } else {
-          return window.reduce(
-            (best, b) => (b.low < best ? b.low : best),
-            window[0].low,
-          );
-        }
-      }
-
       pattern.polygons.forEach((polygon) => {
         if (polygon.points.length < 2) return;
         const series = chart.addLineSeries({
@@ -470,16 +438,7 @@ export default function TradingChart({
           crosshairMarkerVisible: false,
         });
         let data: LineData[] = polygon.points
-          .map((p) => {
-            // Snap trendline anchor points to the actual wick so the line
-            // touches highs (downtrend) or lows (uptrend) and never cuts
-            // through candle bodies, which would make it technically invalid.
-            let value = p.price;
-            if (TRENDLINE_TYPES.has(pattern.type)) {
-              value = wickSnap(p.time, pattern.type);
-            }
-            return { time: p.time as Time, value };
-          })
+          .map((p) => ({ time: p.time as Time, value: p.price }))
           .sort((a, b) => (a.time as number) - (b.time as number))
           .filter(
             (p, i, arr) =>

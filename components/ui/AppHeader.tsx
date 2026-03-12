@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Activity, TrendingUp, BarChart2, Zap } from "lucide-react";
+import { Activity, TrendingUp, BarChart2, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type ActivePage = "home" | "chart" | "screener";
+export type ActivePage = "home" | "chart" | "track-record";
 
 interface AppHeaderProps {
   /** Which nav item is currently active */
@@ -13,18 +13,12 @@ interface AppHeaderProps {
   centerSlot?: React.ReactNode;
   /** Optional content between center and nav (e.g. meta + watchlist button) */
   rightSlot?: React.ReactNode;
-  /** If provided, Chart Analysis becomes a button instead of a link */
-  onChartClick?: () => void;
-  /** If provided, Smart Screener becomes a button instead of a link */
-  onScreenerClick?: () => void;
 }
 
 export default function AppHeader({
   activePage,
   centerSlot,
   rightSlot,
-  onChartClick,
-  onScreenerClick,
 }: AppHeaderProps) {
   return (
     <header className="shrink-0 border-b border-border bg-surface/80 backdrop-blur-md z-20 sticky top-0">
@@ -74,67 +68,37 @@ export default function AppHeader({
 
           <div className="w-px h-4 bg-border mx-0.5" />
 
-          {/* Chart Analysis — button or link */}
-          {onChartClick ? (
-            <button
-              onClick={onChartClick}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors",
-                activePage === "chart"
-                  ? "bg-accent/20 text-accent"
-                  : "text-muted-foreground hover:text-foreground hover:bg-surface-elevated"
-              )}
-            >
-              <BarChart2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Chart Analysis</span>
-              <span className="sm:hidden">Chart</span>
-            </button>
-          ) : (
-            <Link
-              href="/app"
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
-                activePage === "chart"
-                  ? "bg-accent/20 text-accent"
-                  : "text-muted-foreground hover:text-foreground hover:bg-surface-elevated"
-              )}
-            >
-              <BarChart2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Chart Analysis</span>
-              <span className="sm:hidden">Chart</span>
-            </Link>
-          )}
+          {/* Chart Analysis */}
+          <Link
+            href="/app"
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+              activePage === "chart"
+                ? "bg-accent/20 text-accent"
+                : "text-muted-foreground hover:text-foreground hover:bg-surface-elevated"
+            )}
+          >
+            <BarChart2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Chart Analysis</span>
+            <span className="sm:hidden">Chart</span>
+          </Link>
 
-          {/* Smart Screener — button or link */}
-          {onScreenerClick ? (
-            <button
-              onClick={onScreenerClick}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors",
-                activePage === "screener"
-                  ? "bg-accent/20 text-accent"
-                  : "text-muted-foreground hover:text-foreground hover:bg-surface-elevated"
-              )}
-            >
-              <Zap className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Smart Screener</span>
-              <span className="sm:hidden">Screener</span>
-            </button>
-          ) : (
-            <Link
-              href="/app?tab=screener"
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
-                activePage === "screener"
-                  ? "bg-accent/20 text-accent"
-                  : "text-muted-foreground hover:text-foreground hover:bg-surface-elevated"
-              )}
-            >
-              <Zap className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Smart Screener</span>
-              <span className="sm:hidden">Screener</span>
-            </Link>
-          )}
+          <div className="w-px h-4 bg-border mx-0.5" />
+
+          {/* Track Record */}
+          <Link
+            href="/track-record"
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+              activePage === "track-record"
+                ? "bg-accent/20 text-accent"
+                : "text-muted-foreground hover:text-foreground hover:bg-surface-elevated"
+            )}
+          >
+            <Trophy className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Track Record</span>
+            <span className="sm:hidden">Record</span>
+          </Link>
         </nav>
 
       </div>

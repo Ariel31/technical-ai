@@ -20,8 +20,9 @@ import {
   ChevronRight,
   Sparkles,
   AlertCircle,
+  Trophy,
 } from "lucide-react";
-import type { ScreenerPick, ScreenerResult, ScreenerStatus } from "@/lib/types";
+import type { ScreenerPick, ScreenerResult, ScreenerStatus, TrackRecordStats } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -62,7 +63,6 @@ function useScan() {
         const pickedDate = new Date(data.pickedAt).toDateString();
         const today      = new Date().toDateString();
         if (pickedDate !== today) return false;   // stale — trigger fresh scan
-        if (!data.result.allCandidates)  return false;   // old schema — trigger re-scan
 
         setResult(data.result);
         setPickedAt(data.pickedAt);
@@ -384,6 +384,14 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
 
 export default function LandingPage() {
   const { status, progress, result, pickedAt, error, runScan } = useScan();
+  const [trackStats, setTrackStats] = useState<TrackRecordStats | null>(null);
+
+  useEffect(() => {
+    fetch("/api/setups/stats")
+      .then((r) => r.json())
+      .then((s: TrackRecordStats) => { if (s.totalSetups > 0) setTrackStats(s); })
+      .catch(() => { /* non-fatal */ });
+  }, []);
 
   const isLoading = status === "scanning" || status === "analyzing";
   const picks = result?.picks?.slice(0, 3) ?? [];
@@ -492,6 +500,37 @@ export default function LandingPage() {
             <p className="text-sm">Loading…</p>
           </div>
         )}
+
+        {/* AI Performance strip */}
+        {status === "done" && trackStats && (
+          <div className="mt-8 rounded-2xl border border-border bg-surface/40 px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-accent/10 border border-accent/20 shrink-0">
+                <Trophy className="w-4 h-4 text-accent" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-foreground">AI Track Record</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {trackStats.totalSetups} setups tracked
+                  {trackStats.wins + trackStats.losses > 0 && (
+                    <> · Win Rate: <span className="text-emerald-400 font-medium">{trackStats.winRate}%</span>
+                    {trackStats.avgReturn !== 0 && (
+                      <> · Avg Trade: <span className={cn("font-medium", trackStats.avgReturn > 0 ? "text-emerald-400" : "text-rose-400")}>
+                        {trackStats.avgReturn > 0 ? "+" : ""}{trackStats.avgReturn}%
+                      </span></>
+                    )}</>
+                  )}
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/track-record"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-accent/30 bg-accent/10 text-accent text-sm font-medium hover:bg-accent/20 transition-colors shrink-0"
+            >
+              View Full Track Record <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+        )}
       </section>
 
       {/* ── CTA strip ───────────────────────────────────────────────────────── */}
@@ -501,7 +540,7 @@ export default function LandingPage() {
             <div>
               <h2 className="text-lg font-semibold text-foreground">Go deeper</h2>
               <p className="text-sm text-muted-foreground mt-1">
-                Analyze any stock with AI pattern detection, or run a custom screener scan.
+                Analyze any stock with AI pattern detection, or check the full AI track record.
               </p>
             </div>
             <div className="flex items-center gap-3 shrink-0">
@@ -513,11 +552,11 @@ export default function LandingPage() {
                 Chart Analyzer
               </Link>
               <Link
-                href="/app?tab=screener"
+                href="/track-record"
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent/20 hover:bg-accent/30 border border-accent/30 text-accent font-semibold text-sm transition-colors"
               >
-                <Zap className="w-4 h-4" />
-                Run Screener
+                <Trophy className="w-4 h-4" />
+                Track Record
                 <ArrowRight className="w-4 h-4" />
               </Link>
             </div>

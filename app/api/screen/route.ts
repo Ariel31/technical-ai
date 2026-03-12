@@ -10,8 +10,7 @@ import {
 } from "@/lib/screener";
 import { analyzeScreenerCandidates } from "@/lib/screener-ai";
 import { generateSignals } from "@/lib/pipeline";
-import { ScreenerRuleBuilder } from "@/lib/screener-rules";
-import type { CandidateSummary, MarketRegime, ScreenerCandidate, UserScreenerConfig } from "@/lib/types";
+import type { CandidateSummary, MarketRegime, ScreenerCandidate } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,16 +21,23 @@ const OHLCV_BATCH_SIZE = 20;
 // After scoring + RR filter, pass top N to Gemini
 const AI_CANDIDATE_COUNT = 20;
 
+const PATTERN_DISPLAY: Record<string, string> = {
+  cup_and_handle:              "Cup & Handle",
+  double_bottom:               "Double Bottom",
+  bull_flag:                   "Bull Flag",
+  consolidation_breakout:      "Consolidation Breakout",
+  sma_bounce:                  "SMA Bounce",
+  momentum_continuation:       "Momentum Continuation",
+  falling_wedge:               "Falling Wedge",
+  inverse_head_and_shoulders:  "Inverse H&S",
+  none:                        "Momentum Setup",
+};
+
 function sse(data: object): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);
 }
 
-export async function POST(req: Request) {
-  // Parse optional user config from request body
-  const body = await req.json().catch(() => ({})) as { userConfig?: UserScreenerConfig };
-  const userConfig: UserScreenerConfig = body.userConfig ?? { activeFilters: [], filterParams: {} };
-  const ruleBuilder = new ScreenerRuleBuilder(userConfig);
-
+export async function POST() {
   const stream = new ReadableStream({
     async start(controller) {
       const send = (data: object) => {
@@ -70,7 +76,7 @@ export async function POST(req: Request) {
 
         // ── Phase 2: OHLCV for all scan universe stocks ───────────────────────
         const deepCandidates: ScreenerCandidate[] = [];
-        // Keep last 60 bars per passing ticker for mini charts
+        // Keep last 90 bars per passing ticker for mini charts
         const barsMap = new Map<string, Array<{ t: number; o: number; h: number; l: number; c: number }>>();
 
         const batches: string[][] = [];
@@ -124,8 +130,6 @@ export async function POST(req: Request) {
                   })));
                 }
               }
-            } else {
-              // Silently skip dead tickers (404s, delistings, etc.)
             }
           }
         }
@@ -135,11 +139,8 @@ export async function POST(req: Request) {
         // Assign RS percentile ranks
         assignRSRanks(deepCandidates);
 
-        // Apply user hard filters + score boosts, then take top candidates
-        const filtered      = ruleBuilder.applyFilters(deepCandidates);
-        const boosted       = ruleBuilder.applyBoosts(filtered);
-        const allCandidates = getTopCandidates(boosted, 50, 1.5);  // wider — for setups page
-        const aiCandidates  = getTopCandidates(boosted, AI_CANDIDATE_COUNT, 1.8);
+        const allCandidates = getTopCandidates(deepCandidates, 50, 1.5); // wider — for /setups page
+        const aiCandidates  = getTopCandidates(deepCandidates, AI_CANDIDATE_COUNT, 1.8);
 
         // ── Phase 3: AI picks top 3 ───────────────────────────────────────────
         send({
@@ -159,36 +160,18 @@ export async function POST(req: Request) {
           note: "Market regime unavailable",
         };
 
-        const rawPicks = await analyzeScreenerCandidates(
-          aiCandidates,
-          effectiveRegime,
-          ruleBuilder.buildPromptAddendum(),
-        );
+        const rawPicks = await analyzeScreenerCandidates(aiCandidates, effectiveRegime);
 
         // Merge pipeline scores + algorithmic signals + pattern name into each AI pick
-        const PATTERN_DISPLAY: Record<string, string> = {
-          cup_and_handle:              "Cup & Handle",
-          double_bottom:               "Double Bottom",
-          bull_flag:                   "Bull Flag",
-          consolidation_breakout:      "Consolidation Breakout",
-          sma_bounce:                  "SMA Bounce",
-          momentum_continuation:       "Momentum Continuation",
-          falling_wedge:               "Falling Wedge",
-          inverse_head_and_shoulders:  "Inverse H&S",
-          none:                        "Momentum Setup",
-        };
-
         const candidateMap = new Map(aiCandidates.map((c) => [c.ticker, c]));
         const picks = rawPicks.map((pick) => {
           const c = candidateMap.get(pick.ticker);
           return {
             ...pick,
-            // Override AI-generated pattern name with the algorithmically detected one
             primaryPattern:   c ? (PATTERN_DISPLAY[c.pattern] ?? pick.primaryPattern) : pick.primaryPattern,
             setupScore:       c ? Math.round(c.setupScore)       : 0,
             opportunityScore: c ? Math.round(c.opportunityScore) : 0,
             signals:          c ? generateSignals(c)             : [],
-            // Use algorithmic price levels (AI's fine-tuning is often unreliable)
             entry:    c ? +c.entry.toFixed(2)       : pick.entry,
             stopLoss: c ? +c.stopLevel.toFixed(2)   : pick.stopLoss,
             target:   c ? +c.targetLevel.toFixed(2) : pick.target,
@@ -200,8 +183,7 @@ export async function POST(req: Request) {
           };
         });
 
-        // Re-rank by algorithmic score (setup + opportunity) so #1 is always the strongest
-        // setup — prevents AI ordering inconsistencies from affecting the displayed rank.
+        // Re-rank by algorithmic score so #1 is always the strongest setup
         picks.sort((a, b) =>
           (b.setupScore + b.opportunityScore) - (a.setupScore + a.opportunityScore)
         );
@@ -222,9 +204,6 @@ export async function POST(req: Request) {
           relativeStrength: +c.relativeStrength.toFixed(1),
           change5d:         +c.change5d.toFixed(1),
           change20d:        +c.change20d.toFixed(1),
-          entry:            +c.entry.toFixed(2),
-          stopLevel:        +c.stopLevel.toFixed(2),
-          targetLevel:      +c.targetLevel.toFixed(2),
           isContracting:    c.isContracting,
           aboveSma50:       c.aboveSma50,
           aboveSma200:      c.aboveSma200,
@@ -240,13 +219,37 @@ export async function POST(req: Request) {
 
         send({ type: "done", result: screenerResult });
 
-        // Only cache to DB when no user filters are active (default scan = home page cache)
-        if (!ruleBuilder.hasAnyFilters()) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          sql`DELETE FROM top_picks`
-            .then(() => sql`INSERT INTO top_picks (result, picked_at) VALUES (${sql.json(screenerResult as any)}, now())`)
-            .catch(() => { /* non-fatal */ });
+        // Save to top_picks cache
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        sql`DELETE FROM top_picks`
+          .then(() => sql`INSERT INTO top_picks (result, picked_at) VALUES (${sql.json(screenerResult as any)}, now())`)
+          .catch(() => { /* non-fatal */ });
+
+        // Auto-save picks as tracked setups (skip tickers already PENDING/ACTIVE)
+        try {
+          const existingRows = await sql`
+            SELECT ticker FROM setups WHERE status IN ('PENDING', 'ACTIVE')
+          `;
+          const tracked = new Set((existingRows as { ticker: string }[]).map((r) => r.ticker));
+
+          for (const pick of picks) {
+            if (!tracked.has(pick.ticker)) {
+              await sql`
+                INSERT INTO setups
+                  (ticker, company_name, pattern, confidence, entry_price, stop_price, target_price,
+                   scan_source, setup_score, opportunity_score, reasoning)
+                VALUES
+                  (${pick.ticker}, ${pick.companyName}, ${pick.primaryPattern},
+                   ${pick.confidence}, ${pick.entry}, ${pick.stopLoss}, ${pick.target},
+                   'homepage', ${pick.setupScore ?? null}, ${pick.opportunityScore ?? null},
+                   ${pick.reasoning ?? null})
+              `;
+            }
+          }
+        } catch (err) {
+          console.warn("[Screener] Setup tracking insert failed:", err);
         }
+
       } catch (err) {
         send({
           type: "error",

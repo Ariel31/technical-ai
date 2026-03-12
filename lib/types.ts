@@ -193,11 +193,6 @@ export type ScreenerPattern =
   | "inverse_head_and_shoulders"
   | "none";
 
-export interface UserScreenerConfig {
-  activeFilters: string[];              // tag IDs, e.g. ["pattern_bull_flag", "rsi_momentum"]
-  filterParams: Record<string, number>; // param overrides (reserved for future per-tag inputs)
-}
-
 export interface ScreenerCandidate {
   // Identity
   ticker: string;
@@ -302,22 +297,19 @@ export interface CandidateSummary {
   name: string;
   price: number;
   pattern: ScreenerPattern;
-  primaryPattern: string;      // display name e.g. "Bull Flag"
-  score: number;               // 0-100 final pipeline score
+  primaryPattern: string;
+  score: number;
   setupScore: number;
   opportunityScore: number;
   rsi14: number;
   volumeRatio: number;
   riskReward: number;
-  breakoutDistance: number;    // % from breakout level
-  potentialReturn: number;     // (target - entry) / entry * 100
+  breakoutDistance: number;
+  potentialReturn: number;
   rsRank: number;
-  relativeStrength: number;    // vs SPY 60d
+  relativeStrength: number;
   change5d: number;
   change20d: number;
-  entry: number;
-  stopLevel: number;
-  targetLevel: number;
   isContracting: boolean;
   aboveSma50: boolean;
   aboveSma200: boolean;
@@ -332,6 +324,44 @@ export interface ScreenerResult {
 }
 
 export type ScreenerStatus = "idle" | "scanning" | "analyzing" | "done" | "error";
+
+// ─── Setup Tracking Types ───────────────────────────────────────────────────────
+
+export type SetupStatus = "PENDING" | "ACTIVE" | "TARGET_HIT" | "STOP_HIT" | "EXPIRED";
+
+export interface TrackedSetup {
+  id: string;
+  ticker: string;
+  companyName: string | null;
+  pattern: string;
+  confidence: number;
+  entryPrice: number;
+  stopPrice: number;
+  targetPrice: number;
+  createdAt: string;
+  status: SetupStatus;
+  entryTriggeredAt: string | null;
+  closedAt: string | null;
+  result: "WIN" | "LOSS" | null;
+  returnPercent: number | null;
+  scanSource: string;
+  setupScore: number | null;
+  opportunityScore: number | null;
+  reasoning: string | null;
+}
+
+export interface TrackRecordStats {
+  totalSetups: number;
+  wins: number;
+  losses: number;
+  winRate: number;       // 0-100
+  avgReturn: number;     // % across all closed trades
+  avgWin: number;
+  avgLoss: number;
+  bestTrade: number;
+  worstTrade: number;
+  activeCount: number;   // PENDING + ACTIVE
+}
 
 // ─── Watchlist Types ────────────────────────────────────────────────────────────
 
