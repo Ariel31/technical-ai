@@ -3,8 +3,8 @@ import type {
   MarketRegime,
   MarketTrend,
   ScreenerCandidate,
-  ScreenerPattern,
 } from "./types";
+import { sma, ema, rsi, atr, detectPattern, detectReversalPattern, computeScores, passesBasicFilter, passesTrendFilter } from "./pipeline";
 
 // ─── Universe (~600 liquid US equities + sector ETFs) ─────────────────────────
 // Deduplicated with [...new Set()] at the end.
@@ -143,7 +143,7 @@ const RAW_UNIVERSE = [
   "NLY","AGNC","TWO","DX","RWT","EFC","RITM","BXMT","GPMT","RC",
 
   // ── Communication ─────────────────────────────────────────────────────────
-  "T","TMUS","VZ","CMCSA","DIS","PARA","WBD","FOX","FOXA","SIRI","CHTR","LUMN",
+  "T","TMUS","VZ","CMCSA","DIS","WBD","FOX","FOXA","SIRI","CHTR","LUMN",
 
   // ── Media / Gaming / Streaming ────────────────────────────────────────────
   "EA","TTWO","RBLX","U","ROKU","SPOT","WMG","LGF.A","IMAX","AMC","CINE",
@@ -217,7 +217,7 @@ const RAW_UNIVERSE = [
   "SXT","TREX","TRNS","UFPI","UNVR","ZEUS","ZWS","AMCR","BERY","SLGN",
 
   // ── More REITs ────────────────────────────────────────────────────────────
-  "ACC","AIV","AKR","AMH","APLE","BDN","BHR","BRSP","CLPR","CPLG",
+  "AIV","AKR","AMH","APLE","BDN","BHR","BRSP","CLPR","CPLG",
   "CTRE","DEI","EGP","EPR","ESRT","FPI","GTY","IRM","MDV","OLP",
   "PINE","PK","SAFE","SELF","SITC","SKT","SVC","UBA","UBP","UE",
   "UHT","UNIT","GMRE","GOOD","HIW","IIPR","ILPT","KRG","NHI","NNN",
@@ -249,65 +249,152 @@ export const STOCK_UNIVERSE = [...new Set(RAW_UNIVERSE)];
 // These are fetched directly via the Yahoo Finance v8 chart API (the only endpoint
 // that works reliably without authentication). Full 1-year OHLCV → deep analysis.
 
-export const SCAN_UNIVERSE: string[] = [
-  // ── Mega-cap tech ──────────────────────────────────────────────────────────
-  "AAPL","MSFT","NVDA","GOOGL","META","AMZN","TSLA","NFLX","UBER","ABNB",
+const RAW_SCAN: string[] = [
+  // ── Mega-cap tech & communication ─────────────────────────────────────────
+  "AAPL","MSFT","NVDA","GOOGL","GOOG","META","AMZN","TSLA","NFLX","UBER","ABNB","LYFT",
+
   // ── Semiconductors ────────────────────────────────────────────────────────
-  "AMD","INTC","QCOM","AVGO","MU","AMAT","LRCX","TXN","KLAC","ARM","MRVL","ADI","SMCI","ON","NXPI",
+  "AMD","INTC","QCOM","AVGO","MU","AMAT","LRCX","TXN","KLAC","ARM","MRVL","ADI","SMCI",
+  "ON","NXPI","SWKS","SNPS","CDNS","MPWR","MCHP","ENTG","WOLF","RMBS","IPGP","COHU",
+  "UCTT","ACLS","MKSI","LSCC","MTSI","SYNA","ALGM","AEHR","KLIC","GFS","ONTO","PLAB",
+
   // ── Software / Cloud / SaaS ───────────────────────────────────────────────
   "ORCL","CRM","ADBE","NOW","INTU","WDAY","PLTR","DDOG","SNOW","NET",
   "ZS","PANW","CRWD","FTNT","OKTA","TEAM","HUBS","TTD","MDB","GTLB",
   "CFLT","BRZE","BILL","DUOL","DOCN","MNDY","APPN","KVYO","FRSH","BOX",
-  // ── AI / Data ─────────────────────────────────────────────────────────────
-  "BBAI","SOUN","PATH","CWAN","RXRX","IREN",
-  // ── Finance ───────────────────────────────────────────────────────────────
-  "JPM","BAC","WFC","GS","MS","V","MA","AXP","BLK","BX",
-  "C","USB","SCHW","COIN","HOOD","SOFI","KKR","APO","CME","ICE",
-  // ── Healthcare ────────────────────────────────────────────────────────────
+  "IBM","ACN","CSCO","CTSH","EPAM","GDDY","FICO","VRSN","AKAM","FFIV",
+  "MANH","MSI","JKHY","TYL","CDW","ADSK","ANET","ANSS","CHKP","CIEN",
+  "FIVN","GLOB","PD","QLYS","STNE","PCOR",
+  "TOST","SPSC","NTNX","ASAN","DOCU","TENB","CYBR","RPD","VRNT",
+  "EGHT","WIX","YEXT","APPF","BLKB","CVLT","JAMF","PEGA","QTWO",
+
+  // ── AI / Robotics / Autonomous ────────────────────────────────────────────
+  "BBAI","SOUN","PATH","CWAN","RXRX","IREN","ACHR","JOBY","AI",
+
+  // ── Hardware / IT infrastructure ─────────────────────────────────────────
+  "HPQ","HPE","DELL","PSTG","NTAP","WDC","STX","VIAV","CRUS",
+
+  // ── Internet / Consumer tech ──────────────────────────────────────────────
+  "SNAP","PINS","HOOD","SOFI","AFRM","UPST","COIN","MSTR","XYZ","PYPL",
+  "MELI","BIDU","RBLX","SPOT","ROKU","ETSY","CHWY","EXPE","BKNG","TRIP",
+
+  // ── Finance: Major banks & brokers ────────────────────────────────────────
+  "JPM","BAC","WFC","C","GS","MS","USB","PNC","TFC","COF","AXP",
+  "SYF","ALLY","SCHW","IBKR","RJF","BK","STT","NTRS",
+  "V","MA","PYPL","FIS","FISV","GPN","WU","MQ","OWL",
+
+  // ── Finance: Mid-cap banks ────────────────────────────────────────────────
+  "FITB","HBAN","RF","KEY","CMA","ZION","WAL","CFG","FHN","WBS",
+  "UMBF","WTFC","PNFP","FCNCA","BOKF","FFIN","OFG","CVBF","HWC",
+
+  // ── Finance: Asset management / exchanges ─────────────────────────────────
+  "BLK","BX","KKR","APO","ARES","IVZ","AMP","BEN","MCO","SPGI","MSCI",
+  "NDAQ","ICE","CME","CBOE","MKTX","LPLA","VOYA","LNC","EQH",
+
+  // ── Finance: Insurance ────────────────────────────────────────────────────
+  "AIG","MET","PRU","AFL","ALL","CB","TRV","HIG","PGR","MKL","ERIE","CINF",
+  "MMC","WTW","GL","FNF","RDN","ESNT","UNM","RLI","FAF","AXS","KNSL",
+
+  // ── Finance: BDCs / Specialty ─────────────────────────────────────────────
+  "ARCC","MAIN","HTGC","GBDC","FSK","CSWC","BXSL","SLRC","TCPC",
+
+  // ── Healthcare: Large pharma / biotech ────────────────────────────────────
   "UNH","LLY","JNJ","ABBV","PFE","MRK","TMO","AMGN","REGN","GILD",
-  "VRTX","MRNA","ABT","MDT","DXCM","ISRG","BSX","EW","PODD","RVMD",
-  // ── Energy ────────────────────────────────────────────────────────────────
-  "XOM","CVX","COP","OXY","SLB","DVN","EOG","FANG","MPC","LNG","VLO","TRGP",
-  // ── Consumer Discretionary ────────────────────────────────────────────────
-  "COST","TGT","WMT","HD","LOW","MCD","SBUX","CMG","BKNG","ETSY",
-  "NKE","LULU","ROST","TJX","ORLY","AZO","CHWY","GM","F","RIVN",
-  // ── Industrials / Defense ─────────────────────────────────────────────────
-  "CAT","DE","HON","GE","BA","RTX","UPS","FDX","URI","LMT","GD","NOC","KTOS",
-  // ── Biotech / High-beta ───────────────────────────────────────────────────
-  "CRSP","BEAM","NVAX","NUVL","KYMR","ALNY","EDIT","NTLA","ARWR","IOVA",
-  // ── Crypto / Digital assets ───────────────────────────────────────────────
-  "MSTR","MARA","RIOT","CLSK","HUT","CIFR",
-  // ── ETFs (sector benchmarks) ──────────────────────────────────────────────
-  "SPY","QQQ","IWM","GLD","TLT","SMH","SOXX","XLF","XLE","XLK","XLV","ARKK",
+  "VRTX","MRNA","ABT","BMY","BIIB","AZN","NVO","CVS","HUM","CNC",
+  "MOH","HCA","THC","UHS","MCK","CI","ELV","GEHC","OGN",
+
+  // ── Healthcare: Med devices & tools ──────────────────────────────────────
+  "MDT","BSX","EW","ISRG","DXCM","PODD","RMD","STE","ALGN","ABT",
+  "SYK","ZBH","HOLX","IDXX","INSP","NVCR","DHR","A","BIO","ILMN",
+  "IART","MMSI","GKOS","ATRC","DGX","XRAY","EXAS","AXSM","ELAN",
+
+  // ── Healthcare: Biotech (mid/small) ──────────────────────────────────────
+  "ALNY","ARWR","CRSP","EDIT","NTLA","BEAM","DNLI","KYMR","NUVL","RVMD",
+  "IOVA","TVTX","PCVX","HALO","INCY","EXEL","NBIX","ACAD","BMRN","ALKS",
+  "JAZZ","PRGO","UTHR","NVAX","RCUS","SRPT","TGTX","LGND","MDGL",
+
+  // ── Energy: E&P ───────────────────────────────────────────────────────────
+  "XOM","CVX","COP","EOG","OXY","DVN","FANG","SLB","HAL","BKR",
+  "CIVI","SM","AR","MTDR","EQT","RRC","CNX","MUR","NOG",
+  "GPOR","BATL","TALO","CRK","MGY","KOS","CLB",
+
+  // ── Energy: Downstream / Midstream ───────────────────────────────────────
+  "MPC","PSX","VLO","PBF","LNG","TRGP","OKE","WMB","KMI","EPD","ET",
+  "PAA","MPLX","DT","DKL","DINO","FLNG","FRO","GLNG","TDW",
+
+  // ── Consumer Discretionary: Retail ───────────────────────────────────────
+  "COST","WMT","TGT","HD","LOW","ROST","TJX","BURL","FIVE","DLTR","DG",
+  "BBY","ORLY","AZO","GPC","TSCO","WSM","RH","OLLI","LESL","BOOT",
+  "NKE","LULU","ONON","DECK","CROX","PVH","RL","TPR","CPRI",
+  "KSS","LEVI","MNSO","GOOS","WHR","SIG","TLYS",
+
+  // ── Consumer Discretionary: Auto & EV ────────────────────────────────────
+  "GM","F","RIVN","LCID","NIO","LI","XPEV","AN","KMX","LAD","PAG","HTZ","STLA",
+
+  // ── Consumer Discretionary: Restaurants / Travel ─────────────────────────
+  "MCD","SBUX","CMG","DPZ","YUM","QSR","WING","SHAK","TXRH","BJRI","EAT",
+  "H","HLT","MAR","WH","BKNG","EXPE","RCL","CCL","NCLH","MTN","DKNG",
+  "MGM","WYNN","LVS","CZR","PENN","VICI",
+
+  // ── Consumer Staples ──────────────────────────────────────────────────────
+  "PG","CL","KO","PEP","PM","MO","MNST","KMB","CLX","CHD","MDLZ",
+  "GIS","MKC","SJM","HRL","CAG","POST","CPB","KR","COTY","ELF",
+  "HIMS","KVUE","SFM","PFGC","USFD","BJ","CHEF","VITL",
+
+  // ── Industrials: Defense ─────────────────────────────────────────────────
+  "LMT","RTX","NOC","GD","BA","LDOS","SAIC","BAH","HII","KTOS","TDG","AVAV",
+
+  // ── Industrials: Transportation ───────────────────────────────────────────
+  "UPS","FDX","JBHT","CHRW","KNX","ODFL","XPO","GXO","RXO","ARCB",
+  "DAL","UAL","AAL","LUV","ALGT","MATX",
+
+  // ── Industrials: Machinery / Conglomerates ────────────────────────────────
+  "CAT","DE","HON","GE","GEV","ETN","EMR","PH","ITW","IR","TT","ROK",
+  "AME","FTV","PNR","GGG","IEX","NDSN","GTLS","AGCO","CMI","SNA","SWK",
+  "ROP","URI","FAST","GWW","MSC","KBR","BMI","AYI","HUBB","ATR",
+
+  // ── Industrials: Construction / Building ─────────────────────────────────
+  "CBRE","JLL","WY","BLDR","IBP","MAS","MLM","VMC",
+  "CRH","EXP","UFPI","TREX","AWI","NVR","MHO","LEN","PHM",
+  "DHI","TOL","TMHC","GRBK","LGIH","MTH","CVCO","SKY",
+
+  // ── Industrials: HVAC / Electrical ────────────────────────────────────────
+  "CARR","OTIS","LII","WSO","GNRC","POWL","REZI","AAON","ALLE",
+
+  // ── Materials ─────────────────────────────────────────────────────────────
+  "LIN","APD","SHW","PPG","ECL","NEM","GOLD","AEM","PAAS","WPM","RGLD",
+  "FNV","NUE","STLD","RS","CLF","PKG","IP","ALB","MP","CF","MOS",
+  "BALL","AMCR","SEE","SLGN","OC","SON","AXTA","IFF","EMN",
+  "HUN","ASH","CE","TROX","ATI","HWKN","BCPC","NEU","POOL",
+
+  // ── Utilities ─────────────────────────────────────────────────────────────
+  "NEE","DUK","SO","AEP","XEL","D","PCG","EIX","ES","AWK","WEC","LNT",
+  "DTE","CMS","ETR","PPL","AES","ATO","NI","SR","AVA","SWX","NWE","OTTR",
+  "AMRC","BEP","CWEN","OGE","IDA","MGEE",
+
+  // ── REITs ─────────────────────────────────────────────────────────────────
+  "AMT","SBAC","CCI","PLD","EQR","MAA","UDR","CPT","INVH","ESS","NNN","O",
+  "VICI","WELL","VTR","DOC","STAG","COLD","CUBE","EXR","PSA","AVB","EQIX",
+  "ARE","BXP","SLG","VNQ","KIM","FRT","REG","WPC","IRM","EPR",
+  "NHI","OHI","SKT","SAFE","SITC","SBRA","KRG","CTRE","EGP","ESRT","PINE",
+
+  // ── Communication ─────────────────────────────────────────────────────────
+  "T","TMUS","VZ","CMCSA","DIS","CHTR","WBD","FOX","SIRI","LUMN",
+  "NXST","GTN","CCOI","LBRDK","ROKU","WMG","EA","TTWO","RBLX","U",
+
+  // ── Sector & Thematic ETFs ────────────────────────────────────────────────
+  "SPY","QQQ","IWM","DIA","GLD","SLV","TLT","HYG","EEM","EFA","VNQ",
+  "XLF","XLE","XLK","XLV","XLI","XLP","XLU","XLY","XLB","XLRE",
+  "SMH","SOXX","IBB","XBI","ARKK","ARKG","ARKW","GDX","GDXJ","IAU",
+
+  // ── Leveraged / Volatility ETFs ───────────────────────────────────────────
+  "TQQQ","SQQQ","SPXL","SPXU","SOXL","SOXS","UVXY","VXX","LABU","LABD",
+  "NUGT","DUST","TNA","TZA","FAS","FAZ","JNUG",
 ];
 
-// ─── Indicator helpers ────────────────────────────────────────────────────────
+export const SCAN_UNIVERSE = [...new Set(RAW_SCAN)];
 
-function sma(closes: number[], period: number): number | null {
-  if (closes.length < period) return null;
-  const slice = closes.slice(-period);
-  return slice.reduce((a, b) => a + b, 0) / period;
-}
-
-function rsi(closes: number[], period = 14): number | null {
-  if (closes.length < period + 1) return null;
-  const changes = closes.slice(1).map((c, i) => c - closes[i]);
-  const slice = changes.slice(-period);
-  const gains = slice.filter((c) => c > 0).reduce((a, b) => a + b, 0) / period;
-  const losses =
-    slice.filter((c) => c < 0).reduce((a, b) => a + Math.abs(b), 0) / period;
-  if (losses === 0) return 100;
-  return 100 - 100 / (1 + gains / losses);
-}
-
-function atr(bars: OHLCVBar[], period = 14): number {
-  if (bars.length < period + 1) return 0;
-  const trs = bars.slice(1).map((b, i) => {
-    const prev = bars[i].close;
-    return Math.max(b.high - b.low, Math.abs(b.high - prev), Math.abs(b.low - prev));
-  });
-  return trs.slice(-period).reduce((a, b) => a + b, 0) / period;
-}
+// sma, rsi, atr, detectPattern, computeScores imported from ./pipeline
 
 // ─── Market regime from SPY OHLCV ────────────────────────────────────────────
 
@@ -347,89 +434,6 @@ export function computeMarketRegime(bars: OHLCVBar[]): MarketRegime | null {
   };
 }
 
-// ─── Pattern detection ────────────────────────────────────────────────────────
-
-function detectPattern(
-  bars: OHLCVBar[],
-  price: number,
-  sm20: number,
-  sm50: number,
-): { pattern: ScreenerPattern; breakoutLevel: number; consolidationDays: number } {
-  const closes = bars.map((b) => b.close);
-  const highs  = bars.map((b) => b.high);
-  const lows   = bars.map((b) => b.low);
-  const volumes = bars.map((b) => b.volume);
-  const len = bars.length;
-
-  // Cup & Handle: U-shaped base 60-100 bars, handle < 50% of cup depth
-  if (len >= 80) {
-    const cup = bars.slice(-100);
-    const cupHighL = cup[0].close;
-    const cupHighR = cup[cup.length - 1].close;
-    const cupLow   = Math.min(...cup.map((b) => b.low));
-    const rimLevel = Math.max(cupHighL, cupHighR);
-    const cupDepth = ((rimLevel - cupLow) / rimLevel) * 100;
-    if (cupDepth >= 12 && cupDepth <= 40) {
-      const handle    = bars.slice(-20);
-      const handleLow = Math.min(...handle.map((b) => b.low));
-      const retracement = ((rimLevel - handleLow) / (rimLevel - cupLow)) * 100;
-      if (retracement < 50 && price > rimLevel * 0.97) {
-        return { pattern: "cup_and_handle", breakoutLevel: rimLevel, consolidationDays: 20 };
-      }
-    }
-  }
-
-  // Double Bottom: two lows within 3% of each other in last 60 bars
-  if (len >= 40) {
-    const search = bars.slice(-60);
-    const mid    = Math.floor(search.length / 2);
-    const lo1    = Math.min(...search.slice(0, mid).map((b) => b.low));
-    const lo2    = Math.min(...search.slice(mid).map((b) => b.low));
-    if (Math.abs(lo1 - lo2) / lo1 < 0.03) {
-      const neckline = Math.max(...search.map((b) => b.high));
-      return { pattern: "double_bottom", breakoutLevel: neckline, consolidationDays: search.length };
-    }
-  }
-
-  // Bull Flag: 20-bar pole > 8% then 10-bar flag < 5% range
-  if (len >= 30) {
-    const pole    = bars.slice(-30, -10);
-    const flag    = bars.slice(-10);
-    const poleRet = ((pole[pole.length - 1].close - pole[0].close) / pole[0].close) * 100;
-    const flagRange = (Math.max(...flag.map((b) => b.high)) - Math.min(...flag.map((b) => b.low))) / price * 100;
-    if (poleRet > 8 && flagRange < 5) {
-      return { pattern: "bull_flag", breakoutLevel: Math.max(...flag.map((b) => b.high)), consolidationDays: 10 };
-    }
-  }
-
-  // Consolidation Breakout: tight 10-day range near 52-week high
-  const high10d  = Math.max(...highs.slice(-10));
-  const low10d   = Math.min(...lows.slice(-10));
-  const range10d = (high10d - low10d) / price * 100;
-  const high52w  = Math.max(...highs);
-  if (range10d < 5 && price > high52w * 0.95) {
-    return { pattern: "consolidation_breakout", breakoutLevel: high10d, consolidationDays: 10 };
-  }
-
-  // SMA Bounce: pulled back to SMA20/50, now recovering
-  const recentLow = Math.min(...lows.slice(-5));
-  if (recentLow <= sm20 * 1.01 && price > sm20 && price > sm50) {
-    return { pattern: "sma_bounce", breakoutLevel: Math.max(...highs.slice(-20)), consolidationDays: 5 };
-  }
-
-  // Momentum Continuation: above SMAs, RSI 50-72, volume expanding
-  const rsi14Val = rsi(closes);
-  if (rsi14Val !== null && rsi14Val >= 50 && rsi14Val <= 72 && price > sm20 && price > sm50) {
-    const avgVol20   = volumes.slice(-21, -1).reduce((a, b) => a + b, 0) / 20;
-    const recentVol5 = volumes.slice(-5).reduce((a, b) => a + b, 0) / 5;
-    if (recentVol5 > avgVol20 * 1.1) {
-      return { pattern: "momentum_continuation", breakoutLevel: Math.max(...highs.slice(-20)), consolidationDays: 5 };
-    }
-  }
-
-  return { pattern: "none", breakoutLevel: price * 1.03, consolidationDays: 0 };
-}
-
 // ─── Deep indicator computation (requires 200+ OHLCV bars) ───────────────────
 
 export function computeIndicators(
@@ -441,9 +445,14 @@ export function computeIndicators(
   if (bars.length < 200) return null;
 
   const closes  = bars.map((b) => b.close);
+  const highs   = bars.map((b) => b.high);
+  const lows    = bars.map((b) => b.low);
   const volumes = bars.map((b) => b.volume);
   const len     = bars.length;
   const price   = closes[len - 1];
+
+  // ── Stage 1: Basic filter — price > $10, 50-day avg vol > 500k ───────────
+  if (!passesBasicFilter(bars, price)) return null;
 
   // Moving averages
   const sm20  = sma(closes, 20);
@@ -451,6 +460,16 @@ export function computeIndicators(
   const sm150 = sma(closes, 150);
   const sm200 = sma(closes, 200);
   if (sm20 === null || sm50 === null || sm150 === null || sm200 === null) return null;
+
+  // Exponential moving averages
+  const em20 = ema(closes, 20) ?? sm20;
+  const em50 = ema(closes, 50) ?? sm50;
+
+  // ── Stage 2: Trend filter — Minervini template ────────────────────────────
+  // price > SMA200, price > SMA150, SMA150 > SMA200, within 15% of 52wk high
+  const high52w = Math.max(...highs);
+  const low52w  = Math.min(...lows);
+  if (!passesTrendFilter(price, sm150, sm200, high52w)) return null;
 
   const rsi14Val = rsi(closes);
   if (rsi14Val === null) return null;
@@ -487,14 +506,73 @@ export function computeIndicators(
   const { pattern, breakoutLevel, consolidationDays } = detectPattern(bars, price, sm20, sm50);
   const breakoutDistance = ((breakoutLevel - price) / price) * 100;
 
-  // Trade setup
-  const entry       = price;
-  const stopLevel   = entry - 1.5 * atr14Val;
+  // Trade setup — chart-based stops so each stock has a unique R/R
+  const entry    = price;
+  const atrStop  = entry - 1.5 * atr14Val;
+
+  let stopLevel: number;
+  let targetLevel: number;
+
+  switch (pattern) {
+    case "bull_flag": {
+      // Stop below the flag low; target = measured pole move above breakout
+      const flagLow  = Math.min(...bars.slice(-10).map((b) => b.low));
+      const poleHigh = bars[bars.length - 11]?.close ?? breakoutLevel;
+      const poleBase = bars[bars.length - 30]?.close ?? (breakoutLevel * 0.9);
+      stopLevel  = Math.max(flagLow * 0.993, atrStop);
+      targetLevel = breakoutLevel + (poleHigh - poleBase) * 0.8;
+      break;
+    }
+    case "cup_and_handle": {
+      // Stop below handle low; target = breakout + cup depth (measured move)
+      const handleLow = Math.min(...bars.slice(-20).map((b) => b.low));
+      const cupLow    = Math.min(...bars.slice(-100).map((b) => b.low));
+      stopLevel  = Math.max(handleLow * 0.993, atrStop);
+      targetLevel = breakoutLevel + (breakoutLevel - cupLow) * 0.75;
+      break;
+    }
+    case "double_bottom": {
+      // Stop below the second bottom; target = neckline + measured move
+      const searchBars = bars.slice(-60);
+      const mid = Math.floor(searchBars.length / 2);
+      const lo2 = Math.min(...searchBars.slice(mid).map((b) => b.low));
+      stopLevel  = Math.max(lo2 * 0.993, atrStop);
+      targetLevel = breakoutLevel + (breakoutLevel - lo2);
+      break;
+    }
+    case "consolidation_breakout": {
+      // Stop below the tight range; target = range width projected above breakout
+      const consoLow = Math.min(...bars.slice(-10).map((b) => b.low));
+      stopLevel  = Math.max(consoLow * 0.994, atrStop);
+      targetLevel = breakoutLevel + (breakoutLevel - consoLow) * 3;
+      break;
+    }
+    case "sma_bounce": {
+      // Stop below SMA50; target at recent swing high (or 2× risk if swing is too close)
+      stopLevel = Math.max(sm50 * 0.979, atrStop);
+      const swingHigh = Math.max(...bars.slice(-20).map((b) => b.high));
+      const riskDist  = entry - stopLevel;
+      targetLevel = Math.max(swingHigh, entry + 2 * riskDist);
+      break;
+    }
+    default: {
+      // Momentum continuation / no pattern: plain ATR-based
+      stopLevel   = atrStop;
+      targetLevel = entry + 3.0 * (entry - stopLevel);
+      break;
+    }
+  }
+
+  // Safety bounds — stop can't exceed 4 × ATR away, must be at least 1.5 × ATR
+  stopLevel  = Math.max(stopLevel, entry - 4 * atr14Val);
+  stopLevel  = Math.min(stopLevel, entry - 1.5 * atr14Val);
+  // Target must be above entry
+  targetLevel = Math.max(targetLevel, entry + (entry - stopLevel));
+
   const riskPerShare = entry - stopLevel;
-  const targetLevel  = entry + 3 * riskPerShare;
   const riskReward   = riskPerShare > 0 ? (targetLevel - entry) / riskPerShare : 0;
 
-  // Score components (0-100)
+  // Legacy score components (kept for ScreenerPanel display)
   let breakoutStrength = 0;
   if (pattern !== "none") {
     breakoutStrength += 30;
@@ -525,21 +603,28 @@ export function computeIndicators(
     range10d < 8     ? 50 :
     range10d < 12    ? 25 : 0;
 
-  // RS component: map relativeStrength to 0-100 (±10% range → 0-100)
-  const rsComponent = Math.max(0, Math.min(100, (relativeStrength + 10) * 5));
-
-  const score =
-    0.35 * breakoutStrength +
-    0.25 * rsComponent +
-    0.20 * volumeExpansion +
-    0.10 * trendAlignment +
-    0.10 * volatilityContraction;
+  // New pipeline scores
+  const { setupScore, opportunityScore, finalScore } = computeScores({
+    pattern,
+    breakoutDistance,
+    volumeRatio,
+    relativeStrength,
+    trendAlignment,
+    isContracting,
+    range10d,
+    riskReward,
+    change5d,
+    change20d,
+    change60d,
+  });
 
   return {
     ticker, name, price,
     sma20: sm20, sma50: sm50, sma150: sm150, sma200: sm200,
     aboveSma20: price > sm20, aboveSma50: price > sm50,
     aboveSma150: price > sm150, aboveSma200: price > sm200,
+    ema20: em20, ema50: em50,
+    high52w, low52w,
     change5d, change20d, change60d, relativeStrength,
     rsi14: rsi14Val, atr14: atr14Val, atr14Pct,
     volumeRatio,
@@ -548,7 +633,9 @@ export function computeIndicators(
     entry, stopLevel, targetLevel, riskReward,
     breakoutStrength, volumeExpansion, trendAlignment, volatilityContraction,
     rsRank: 0,  // filled later by assignRSRanks()
-    score,
+    setupScore,
+    opportunityScore,
+    score: finalScore,
   };
 }
 
@@ -574,7 +661,161 @@ export function getTopCandidates(
   minRR = 1.8
 ): ScreenerCandidate[] {
   return [...candidates]
-    .filter((c) => c.riskReward >= minRR)
+    .filter((c) =>
+      c.riskReward >= minRR &&
+      c.pattern !== "none" &&                             // must have a real setup
+      (c.targetLevel - c.entry) / c.entry * 100 >= 5     // at least 5% upside
+    )
     .sort((a, b) => b.score - a.score)
     .slice(0, topN);
+}
+
+// ─── Reversal candidate computation (skips Minervini trend filter) ────────────
+// Runs on stocks that FAILED the trend filter to catch bottoming reversal patterns.
+
+export function computeReversalIndicators(
+  ticker: string,
+  name: string,
+  bars: OHLCVBar[],
+  spyReturn60d: number,
+): ScreenerCandidate | null {
+  if (bars.length < 80) return null;
+
+  const closes  = bars.map((b) => b.close);
+  const highs   = bars.map((b) => b.high);
+  const lows    = bars.map((b) => b.low);
+  const volumes = bars.map((b) => b.volume);
+  const len     = bars.length;
+  const price   = closes[len - 1];
+
+  // Basic filters — price > $5, 50d avg vol > 500k
+  if (price < 5) return null;
+  const avgVol50 = volumes.slice(-51, -1).reduce((a, b) => a + b, 0) / 50;
+  if (avgVol50 < 500_000) return null;
+
+  // Not a completely dead stock — within 60% of 52-week high
+  const high52w = Math.max(...highs);
+  const low52w  = Math.min(...lows);
+  if (price < high52w * 0.40) return null;
+
+  const sm20  = sma(closes, 20);
+  const sm50  = sma(closes, 50);
+  const sm150 = sma(closes, 150);
+  const sm200 = sma(closes, 200);
+  if (sm20 === null || sm50 === null || sm150 === null || sm200 === null) return null;
+
+  const em20 = ema(closes, 20) ?? sm20;
+  const em50 = ema(closes, 50) ?? sm50;
+
+  // Skip stocks already passing Minervini — trend screener handles those
+  if (passesTrendFilter(price, sm150, sm200, high52w)) return null;
+
+  // Must detect a reversal pattern
+  const { pattern, breakoutLevel, consolidationDays } = detectReversalPattern(bars, price);
+  if (pattern === "none") return null;
+
+  const rsi14Val = rsi(closes);
+  if (rsi14Val === null || rsi14Val > 75) return null; // not already overbought
+
+  const atr14Val  = atr(bars, 14);
+  const atr14Pct  = price > 0 ? (atr14Val / price) * 100 : 0;
+
+  const p5  = closes[len - 6]  ?? closes[0];
+  const p20 = closes[len - 21] ?? closes[0];
+  const p60 = closes[len - 61] ?? closes[0];
+  const change5d  = ((price - p5)  / p5)  * 100;
+  const change20d = ((price - p20) / p20) * 100;
+  const change60d = ((price - p60) / p60) * 100;
+  const relativeStrength = change60d - spyReturn60d;
+
+  const latestVol   = volumes[len - 1];
+  const volumeRatio = avgVol50 > 0 ? latestVol / avgVol50 : 1;
+
+  const high10d  = Math.max(...bars.slice(-10).map((b) => b.high));
+  const low10d   = Math.min(...bars.slice(-10).map((b) => b.low));
+  const range10d = (high10d - low10d) / price * 100;
+
+  const recentATR  = atr(bars.slice(-8),    7);
+  const earlyATR   = atr(bars.slice(-15, -7), 7);
+  const isContracting = range10d < 6 && earlyATR > 0 && recentATR < earlyATR * 0.85;
+
+  const breakoutDistance = ((breakoutLevel - price) / price) * 100;
+
+  // Trade setup — pattern-specific stops and measured-move targets
+  const entry    = price;
+  const atrStop  = entry - 1.5 * atr14Val;
+  let stopLevel: number;
+  let targetLevel: number;
+
+  if (pattern === "falling_wedge") {
+    const wedgeLow    = Math.min(...bars.slice(-10).map((b) => b.low));
+    const wedgeHigh0  = Math.max(...bars.slice(-40, -35).map((b) => b.high));
+    const wedgeRange  = wedgeHigh0 - Math.min(...bars.slice(-40).map((b) => b.low));
+    stopLevel   = Math.max(wedgeLow * 0.993, atrStop);
+    targetLevel = breakoutLevel + wedgeRange * 0.7;
+  } else {
+    // inverse_head_and_shoulders: stop below right shoulder, target = measured move
+    const wb    = bars.slice(-80);
+    const rsSeg = wb.slice(Math.floor(wb.length * 0.8));
+    const rsLow = Math.min(...rsSeg.map((b) => b.low));
+    const hdLow = Math.min(...bars.slice(-60).map((b) => b.low));
+    stopLevel   = Math.max(rsLow * 0.993, atrStop);
+    targetLevel = breakoutLevel + (breakoutLevel - hdLow) * 0.75;
+  }
+
+  // Safety bounds: stop between 1.5 × ATR and 4 × ATR from entry
+  stopLevel   = Math.max(stopLevel, entry - 4 * atr14Val);
+  stopLevel   = Math.min(stopLevel, entry - 1.5 * atr14Val);
+  targetLevel = Math.max(targetLevel, entry + (entry - stopLevel));
+
+  const riskPerShare = entry - stopLevel;
+  const riskReward   = riskPerShare > 0 ? (targetLevel - entry) / riskPerShare : 0;
+
+  if (riskReward < 1.8) return null;
+  if ((targetLevel - entry) / entry * 100 < 5) return null;
+
+  const trendAlignment =
+    (price > sm20  ? 25 : 0) +
+    (price > sm50  ? 25 : 0) +
+    (price > sm150 ? 25 : 0) +
+    (price > sm200 ? 25 : 0);
+
+  const breakoutStrength   = 60;
+  const volumeExpansion    = volumeRatio > 1.5 ? 60 : volumeRatio > 1.2 ? 40 : 20;
+  const volatilityContraction =
+    isContracting ? 80 : range10d < 8 ? 50 : range10d < 12 ? 25 : 0;
+
+  const { setupScore, opportunityScore, finalScore } = computeScores({
+    pattern,
+    breakoutDistance,
+    volumeRatio,
+    relativeStrength,
+    trendAlignment,
+    isContracting,
+    range10d,
+    riskReward,
+    change5d,
+    change20d,
+    change60d,
+  });
+
+  return {
+    ticker, name, price,
+    sma20: sm20, sma50: sm50, sma150: sm150, sma200: sm200,
+    aboveSma20: price > sm20, aboveSma50: price > sm50,
+    aboveSma150: price > sm150, aboveSma200: price > sm200,
+    ema20: em20, ema50: em50,
+    high52w, low52w,
+    change5d, change20d, change60d, relativeStrength,
+    rsi14: rsi14Val, atr14: atr14Val, atr14Pct,
+    volumeRatio,
+    range10d, isContracting,
+    pattern, breakoutLevel, breakoutDistance, consolidationDays,
+    entry, stopLevel, targetLevel, riskReward,
+    breakoutStrength, volumeExpansion, trendAlignment, volatilityContraction,
+    rsRank: 0,
+    setupScore,
+    opportunityScore,
+    score: finalScore,
+  };
 }

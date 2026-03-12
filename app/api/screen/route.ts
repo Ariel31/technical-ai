@@ -1,28 +1,37 @@
 import { fetchStockData } from "@/lib/yahoo-finance";
+import sql from "@/lib/db";
 import {
   SCAN_UNIVERSE,
   computeIndicators,
+  computeReversalIndicators,
   computeMarketRegime,
   assignRSRanks,
   getTopCandidates,
 } from "@/lib/screener";
 import { analyzeScreenerCandidates } from "@/lib/screener-ai";
-import type { MarketRegime, ScreenerCandidate } from "@/lib/types";
+import { generateSignals } from "@/lib/pipeline";
+import { ScreenerRuleBuilder } from "@/lib/screener-rules";
+import type { CandidateSummary, MarketRegime, ScreenerCandidate, UserScreenerConfig } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 // Sequential OHLCV batch size — keeps Yahoo Finance happy (no rate limiting)
-const OHLCV_BATCH_SIZE = 12;
+const OHLCV_BATCH_SIZE = 20;
 // After scoring + RR filter, pass top N to Gemini
-const AI_CANDIDATE_COUNT = 12;
+const AI_CANDIDATE_COUNT = 20;
 
 function sse(data: object): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);
 }
 
-export async function POST() {
+export async function POST(req: Request) {
+  // Parse optional user config from request body
+  const body = await req.json().catch(() => ({})) as { userConfig?: UserScreenerConfig };
+  const userConfig: UserScreenerConfig = body.userConfig ?? { activeFilters: [], filterParams: {} };
+  const ruleBuilder = new ScreenerRuleBuilder(userConfig);
+
   const stream = new ReadableStream({
     async start(controller) {
       const send = (data: object) => {
@@ -61,6 +70,8 @@ export async function POST() {
 
         // ── Phase 2: OHLCV for all scan universe stocks ───────────────────────
         const deepCandidates: ScreenerCandidate[] = [];
+        // Keep last 60 bars per passing ticker for mini charts
+        const barsMap = new Map<string, Array<{ t: number; o: number; h: number; l: number; c: number }>>();
 
         const batches: string[][] = [];
         for (let i = 0; i < SCAN_UNIVERSE.length; i += OHLCV_BATCH_SIZE) {
@@ -93,20 +104,42 @@ export async function POST() {
                 r.value.bars,
                 spyReturn60d
               );
-              if (ind) deepCandidates.push(ind);
+              if (ind) {
+                deepCandidates.push(ind);
+                barsMap.set(batches[i][j], r.value.bars.slice(-90).map((b) => ({
+                  t: b.time, o: b.open, h: b.high, l: b.low, c: b.close,
+                })));
+              } else {
+                // Try reversal patterns for stocks that failed the trend filter
+                const rev = computeReversalIndicators(
+                  batches[i][j],
+                  r.value.meta.name,
+                  r.value.bars,
+                  spyReturn60d
+                );
+                if (rev) {
+                  deepCandidates.push(rev);
+                  barsMap.set(batches[i][j], r.value.bars.slice(-90).map((b) => ({
+                    t: b.time, o: b.open, h: b.high, l: b.low, c: b.close,
+                  })));
+                }
+              }
             } else {
-              console.warn(`[Screener] OHLCV failed for ${batches[i][j]}:`, r.reason);
+              // Silently skip dead tickers (404s, delistings, etc.)
             }
           }
         }
 
-        console.log(`[Screener] Deep analysis complete: ${deepCandidates.length}/${SCAN_UNIVERSE.length} stocks`);
+        console.log(`[Screener] Deep analysis complete: ${SCAN_UNIVERSE.length} fetched, ${deepCandidates.length} passed filters`);
 
         // Assign RS percentile ranks
         assignRSRanks(deepCandidates);
 
-        // Filter RR ≥ 1.8, sort by weighted score, top 12
-        const aiCandidates = getTopCandidates(deepCandidates, AI_CANDIDATE_COUNT, 1.8);
+        // Apply user hard filters + score boosts, then take top candidates
+        const filtered      = ruleBuilder.applyFilters(deepCandidates);
+        const boosted       = ruleBuilder.applyBoosts(filtered);
+        const allCandidates = getTopCandidates(boosted, 50, 1.5);  // wider — for setups page
+        const aiCandidates  = getTopCandidates(boosted, AI_CANDIDATE_COUNT, 1.8);
 
         // ── Phase 3: AI picks top 3 ───────────────────────────────────────────
         send({
@@ -126,17 +159,94 @@ export async function POST() {
           note: "Market regime unavailable",
         };
 
-        const picks = await analyzeScreenerCandidates(aiCandidates, effectiveRegime);
+        const rawPicks = await analyzeScreenerCandidates(
+          aiCandidates,
+          effectiveRegime,
+          ruleBuilder.buildPromptAddendum(),
+        );
 
-        send({
-          type: "done",
-          result: {
-            screenedAt: new Date().toISOString(),
-            totalScanned: deepCandidates.length,
-            filteredCount: aiCandidates.length,
-            picks,
-          },
+        // Merge pipeline scores + algorithmic signals + pattern name into each AI pick
+        const PATTERN_DISPLAY: Record<string, string> = {
+          cup_and_handle:              "Cup & Handle",
+          double_bottom:               "Double Bottom",
+          bull_flag:                   "Bull Flag",
+          consolidation_breakout:      "Consolidation Breakout",
+          sma_bounce:                  "SMA Bounce",
+          momentum_continuation:       "Momentum Continuation",
+          falling_wedge:               "Falling Wedge",
+          inverse_head_and_shoulders:  "Inverse H&S",
+          none:                        "Momentum Setup",
+        };
+
+        const candidateMap = new Map(aiCandidates.map((c) => [c.ticker, c]));
+        const picks = rawPicks.map((pick) => {
+          const c = candidateMap.get(pick.ticker);
+          return {
+            ...pick,
+            // Override AI-generated pattern name with the algorithmically detected one
+            primaryPattern:   c ? (PATTERN_DISPLAY[c.pattern] ?? pick.primaryPattern) : pick.primaryPattern,
+            setupScore:       c ? Math.round(c.setupScore)       : 0,
+            opportunityScore: c ? Math.round(c.opportunityScore) : 0,
+            signals:          c ? generateSignals(c)             : [],
+            // Use algorithmic price levels (AI's fine-tuning is often unreliable)
+            entry:    c ? +c.entry.toFixed(2)       : pick.entry,
+            stopLoss: c ? +c.stopLevel.toFixed(2)   : pick.stopLoss,
+            target:   c ? +c.targetLevel.toFixed(2) : pick.target,
+            riskReward: c ? +c.riskReward.toFixed(2) : pick.riskReward,
+            potentialReturn: c ? +((c.targetLevel - c.entry) / c.entry * 100).toFixed(1) : pick.potentialReturn,
+            breakoutLevel: c ? +c.breakoutLevel.toFixed(2) : undefined,
+            patternKey: c?.pattern,
+            bars: barsMap.get(pick.ticker),
+          };
         });
+
+        // Re-rank by algorithmic score (setup + opportunity) so #1 is always the strongest
+        // setup — prevents AI ordering inconsistencies from affecting the displayed rank.
+        picks.sort((a, b) =>
+          (b.setupScore + b.opportunityScore) - (a.setupScore + a.opportunityScore)
+        );
+
+        const candidateSummaries: CandidateSummary[] = allCandidates.map((c) => ({
+          ticker: c.ticker, name: c.name, price: c.price,
+          pattern: c.pattern,
+          primaryPattern: PATTERN_DISPLAY[c.pattern] ?? c.pattern,
+          score:            +c.score.toFixed(1),
+          setupScore:       +c.setupScore.toFixed(1),
+          opportunityScore: +c.opportunityScore.toFixed(1),
+          rsi14:            +c.rsi14.toFixed(0),
+          volumeRatio:      +c.volumeRatio.toFixed(2),
+          riskReward:       +c.riskReward.toFixed(2),
+          breakoutDistance: +c.breakoutDistance.toFixed(1),
+          potentialReturn:  +((c.targetLevel - c.entry) / c.entry * 100).toFixed(1),
+          rsRank:           c.rsRank,
+          relativeStrength: +c.relativeStrength.toFixed(1),
+          change5d:         +c.change5d.toFixed(1),
+          change20d:        +c.change20d.toFixed(1),
+          entry:            +c.entry.toFixed(2),
+          stopLevel:        +c.stopLevel.toFixed(2),
+          targetLevel:      +c.targetLevel.toFixed(2),
+          isContracting:    c.isContracting,
+          aboveSma50:       c.aboveSma50,
+          aboveSma200:      c.aboveSma200,
+        }));
+
+        const screenerResult = {
+          screenedAt: new Date().toISOString(),
+          totalScanned: deepCandidates.length,
+          filteredCount: allCandidates.length,
+          picks,
+          allCandidates: candidateSummaries,
+        };
+
+        send({ type: "done", result: screenerResult });
+
+        // Only cache to DB when no user filters are active (default scan = home page cache)
+        if (!ruleBuilder.hasAnyFilters()) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          sql`DELETE FROM top_picks`
+            .then(() => sql`INSERT INTO top_picks (result, picked_at) VALUES (${sql.json(screenerResult as any)}, now())`)
+            .catch(() => { /* non-fatal */ });
+        }
       } catch (err) {
         send({
           type: "error",

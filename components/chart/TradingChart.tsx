@@ -43,24 +43,28 @@ export default function TradingChart({
   showKeyLevels,
 }: TradingChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const canvasRef    = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const chartRef          = useRef<IChartApi | null>(null);
-  const candleSeriesRef   = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const volumeSeriesRef   = useRef<ISeriesApi<"Histogram"> | null>(null);
-  const overlaySeriesRef  = useRef<ISeriesApi<"Line">[]>([]);
+  const chartRef = useRef<IChartApi | null>(null);
+  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const overlaySeriesRef = useRef<ISeriesApi<"Line">[]>([]);
   const keyLevelSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
 
   // Refs so the timeScale subscription never closes over stale values
-  const analysisRef        = useRef(analysis);
+  const analysisRef = useRef(analysis);
   const activePatternIdsRef = useRef(activePatternIds);
-  useEffect(() => { analysisRef.current = analysis; },         [analysis]);
-  useEffect(() => { activePatternIdsRef.current = activePatternIds; }, [activePatternIds]);
+  useEffect(() => {
+    analysisRef.current = analysis;
+  }, [analysis]);
+  useEffect(() => {
+    activePatternIdsRef.current = activePatternIds;
+  }, [activePatternIds]);
 
   // ─── Canvas curve drawing (Catmull-Rom → cubic bezier) ────────────────────
   const drawCurvesOnCanvas = useCallback(() => {
-    const canvas       = canvasRef.current;
-    const chart        = chartRef.current;
+    const canvas = canvasRef.current;
+    const chart = chartRef.current;
     const candleSeries = candleSeriesRef.current;
     if (!canvas || !chart || !candleSeries) return;
 
@@ -69,14 +73,14 @@ export default function TradingChart({
 
     // Size canvas to physical pixels for crisp rendering
     const dpr = window.devicePixelRatio || 1;
-    const w   = canvas.offsetWidth;
-    const h   = canvas.offsetHeight;
+    const w = canvas.offsetWidth;
+    const h = canvas.offsetHeight;
     if (w === 0 || h === 0) return;
-    canvas.width  = w * dpr;
+    canvas.width = w * dpr;
     canvas.height = h * dpr;
     ctx.scale(dpr, dpr);
 
-    const currentAnalysis  = analysisRef.current;
+    const currentAnalysis = analysisRef.current;
     const currentActiveIds = activePatternIdsRef.current;
     if (!currentAnalysis) return;
 
@@ -90,9 +94,12 @@ export default function TradingChart({
         const p2 = pts[i + 1];
         const p3 = pts[Math.min(pts.length - 1, i + 2)];
         c.bezierCurveTo(
-          p1.x + (p2.x - p0.x) / 6, p1.y + (p2.y - p0.y) / 6,
-          p2.x - (p3.x - p1.x) / 6, p2.y - (p3.y - p1.y) / 6,
-          p2.x, p2.y
+          p1.x + (p2.x - p0.x) / 6,
+          p1.y + (p2.y - p0.y) / 6,
+          p2.x - (p3.x - p1.x) / 6,
+          p2.y - (p3.y - p1.y) / 6,
+          p2.x,
+          p2.y,
         );
       }
     }
@@ -106,15 +113,14 @@ export default function TradingChart({
           const sorted = [...curve.points].sort((a, b) => a.time - b.time);
 
           // Convert time+price → canvas pixel coords, preserving dot flag
-          const pts = sorted
-            .reduce<Pt[]>((acc, p) => {
-              const x = chart.timeScale().timeToCoordinate(p.time as Time);
-              const y = candleSeries.priceToCoordinate(p.price);
-              if (x !== null && y !== null) {
-                acc.push({ x: x as number, y: y as number, dot: !!p.dot });
-              }
-              return acc;
-            }, []);
+          const pts = sorted.reduce<Pt[]>((acc, p) => {
+            const x = chart.timeScale().timeToCoordinate(p.time as Time);
+            const y = candleSeries.priceToCoordinate(p.price);
+            if (x !== null && y !== null) {
+              acc.push({ x: x as number, y: y as number, dot: !!p.dot });
+            }
+            return acc;
+          }, []);
 
           if (pts.length < 2) return;
 
@@ -141,12 +147,12 @@ export default function TradingChart({
           c.beginPath();
           tracePath(pts);
           c.strokeStyle = curve.color;
-          c.lineWidth   = lw * 3;
-          c.lineJoin    = "round";
-          c.lineCap     = "round";
+          c.lineWidth = lw * 3;
+          c.lineJoin = "round";
+          c.lineCap = "round";
           c.globalAlpha = 0.18;
           c.shadowColor = curve.color;
-          c.shadowBlur  = 20;
+          c.shadowBlur = 20;
           c.stroke();
           c.restore();
           // Pass 2: crisp main line
@@ -154,11 +160,11 @@ export default function TradingChart({
           c.beginPath();
           tracePath(pts);
           c.strokeStyle = curve.color;
-          c.lineWidth   = lw;
-          c.lineJoin    = "round";
-          c.lineCap     = "round";
+          c.lineWidth = lw;
+          c.lineJoin = "round";
+          c.lineCap = "round";
           c.shadowColor = curve.color;
-          c.shadowBlur  = 8;
+          c.shadowBlur = 8;
           c.stroke();
           c.restore();
 
@@ -169,23 +175,23 @@ export default function TradingChart({
             // Outer glow halo
             c.beginPath();
             c.arc(p.x, p.y, 9, 0, Math.PI * 2);
-            c.fillStyle   = curve.color;
+            c.fillStyle = curve.color;
             c.globalAlpha = 0.12;
             c.fill();
             // Main glowing filled circle
             c.globalAlpha = 1;
             c.beginPath();
             c.arc(p.x, p.y, 4.5, 0, Math.PI * 2);
-            c.fillStyle   = curve.color;
+            c.fillStyle = curve.color;
             c.shadowColor = curve.color;
-            c.shadowBlur  = 12;
+            c.shadowBlur = 12;
             c.fill();
             // Dark outline ring for contrast against candles
             c.beginPath();
             c.arc(p.x, p.y, 4.5, 0, Math.PI * 2);
             c.strokeStyle = "#0a0a0f";
-            c.lineWidth   = 1.5;
-            c.shadowBlur  = 0;
+            c.lineWidth = 1.5;
+            c.shadowBlur = 0;
             c.stroke();
             c.restore();
           });
@@ -210,8 +216,16 @@ export default function TradingChart({
         horzLines: { color: CHART_THEME.grid },
       },
       crosshair: {
-        vertLine: { color: "rgba(148,163,184,0.4)", width: 1, style: LineStyle.Dashed },
-        horzLine: { color: "rgba(148,163,184,0.4)", width: 1, style: LineStyle.Dashed },
+        vertLine: {
+          color: "rgba(148,163,184,0.4)",
+          width: 1,
+          style: LineStyle.Dashed,
+        },
+        horzLine: {
+          color: "rgba(148,163,184,0.4)",
+          width: 1,
+          style: LineStyle.Dashed,
+        },
       },
       rightPriceScale: {
         borderColor: CHART_THEME.border,
@@ -273,7 +287,7 @@ export default function TradingChart({
     return () => {
       observer.disconnect();
       chart.remove();
-      chartRef.current        = null;
+      chartRef.current = null;
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
       keyLevelSeriesRef.current = [];
@@ -288,13 +302,17 @@ export default function TradingChart({
     if (!chart) return;
 
     // Remove previous key level series
-    keyLevelSeriesRef.current.forEach((s) => { try { chart.removeSeries(s); } catch {} });
+    keyLevelSeriesRef.current.forEach((s) => {
+      try {
+        chart.removeSeries(s);
+      } catch {}
+    });
     keyLevelSeriesRef.current = [];
 
     if (!keyLevels || !showKeyLevels || bars.length === 0) return;
 
     const startTime = bars[0].time as Time;
-    const endTime   = bars[bars.length - 1].time as Time;
+    const endTime = bars[bars.length - 1].time as Time;
 
     const addLine = (price: number, color: string, title: string) => {
       const s = chart.addLineSeries({
@@ -306,18 +324,28 @@ export default function TradingChart({
         title,
         crosshairMarkerVisible: false,
       });
-      s.setData([{ time: startTime, value: price }, { time: endTime, value: price }]);
+      s.setData([
+        { time: startTime, value: price },
+        { time: endTime, value: price },
+      ]);
       keyLevelSeriesRef.current.push(s);
     };
 
-    keyLevels.supports.forEach((p)    => addLine(p, "rgba(34,197,94,0.6)",  "S"));
-    keyLevels.resistances.forEach((p) => addLine(p, "rgba(239,68,68,0.6)",  "R"));
+    keyLevels.supports.forEach((p) => addLine(p, "rgba(34,197,94,0.6)", "S"));
+    keyLevels.resistances.forEach((p) =>
+      addLine(p, "rgba(239,68,68,0.6)", "R"),
+    );
   }, [keyLevels, showKeyLevels, bars]);
 
   // ─── Feed OHLCV data ──────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (!candleSeriesRef.current || !volumeSeriesRef.current || bars.length === 0) return;
+    if (
+      !candleSeriesRef.current ||
+      !volumeSeriesRef.current ||
+      bars.length === 0
+    )
+      return;
 
     const candleData: CandlestickData[] = bars.map((b) => ({
       time: b.time as Time,
@@ -330,7 +358,8 @@ export default function TradingChart({
     const volumeData: HistogramData[] = bars.map((b) => ({
       time: b.time as Time,
       value: b.volume,
-      color: b.close >= b.open ? CHART_THEME.volume.up : CHART_THEME.volume.down,
+      color:
+        b.close >= b.open ? CHART_THEME.volume.up : CHART_THEME.volume.down,
     }));
 
     candleSeriesRef.current.setData(candleData);
@@ -355,9 +384,9 @@ export default function TradingChart({
   const drawPattern = useCallback(
     (pattern: TechnicalPattern) => {
       if (!chartRef.current || bars.length === 0) return;
-      const chart     = chartRef.current;
+      const chart = chartRef.current;
       const startTime = bars[0].time as Time;
-      const endTime   = bars[bars.length - 1].time as Time;
+      const endTime = bars[bars.length - 1].time as Time;
 
       // Horizontal lines (support, resistance, necklines)
       pattern.lines.forEach((line) => {
@@ -368,8 +397,8 @@ export default function TradingChart({
             line.style === "dashed"
               ? LineStyle.Dashed
               : line.style === "dotted"
-              ? LineStyle.Dotted
-              : LineStyle.Solid,
+                ? LineStyle.Dotted
+                : LineStyle.Solid,
           priceLineVisible: false,
           lastValueVisible: !!line.label,
           title: line.label ?? "",
@@ -377,19 +406,58 @@ export default function TradingChart({
         });
         const data: LineData[] = [
           { time: startTime, value: line.price },
-          { time: endTime,   value: line.price },
+          { time: endTime, value: line.price },
         ];
         series.setData(data);
         overlaySeriesRef.current.push(series);
       });
 
-      // Trendlines / polygon outlines (wedges, flags)
-      // Channels/wedges/flags extend to the last bar so breakouts are visible.
-      // Trend lines do NOT extend — they stop at the last confirmed touch point.
+      // Trendlines / polygon outlines (wedges, flags, channels)
       const EXTENDABLE_TYPES = new Set([
-        "ascending_channel", "descending_channel", "horizontal_channel",
-        "falling_wedge", "rising_wedge", "bull_flag", "bear_flag",
+        "ascending_channel",
+        "descending_channel",
+        "horizontal_channel",
+        "falling_wedge",
+        "rising_wedge",
+        "bull_flag",
+        "bear_flag",
       ]);
+      // Trendlines extend to their breakout marker (if one exists), making the
+      // breakout arrow clearly visible against the projected line.
+      const TRENDLINE_TYPES = new Set(["downtrend_line", "uptrend_line"]);
+
+      // Wick snapping: for each AI anchor timestamp, search a ±5-bar window
+      // and pick the bar with the extreme wick (highest high for downtrend,
+      // lowest low for uptrend). This corrects AI timestamps that land on
+      // a body rather than on the actual swing high/low.
+      const sortedBars = [...bars].sort((a, b) => a.time - b.time);
+      function wickSnap(time: number, type: string): number {
+        // Binary-search for approximate index
+        let lo = 0,
+          hi = sortedBars.length - 1,
+          mid = 0;
+        while (lo <= hi) {
+          mid = (lo + hi) >> 1;
+          if (sortedBars[mid].time < time) lo = mid + 1;
+          else hi = mid - 1;
+        }
+        const WINDOW = 5;
+        const from = Math.max(0, lo - WINDOW);
+        const to = Math.min(sortedBars.length - 1, lo + WINDOW);
+        const window = sortedBars.slice(from, to + 1);
+        if (type === "downtrend_line") {
+          return window.reduce(
+            (best, b) => (b.high > best ? b.high : best),
+            window[0].high,
+          );
+        } else {
+          return window.reduce(
+            (best, b) => (b.low < best ? b.low : best),
+            window[0].low,
+          );
+        }
+      }
+
       pattern.polygons.forEach((polygon) => {
         if (polygon.points.length < 2) return;
         const series = chart.addLineSeries({
@@ -402,19 +470,63 @@ export default function TradingChart({
           crosshairMarkerVisible: false,
         });
         let data: LineData[] = polygon.points
-          .map((p) => ({ time: p.time as Time, value: p.price }))
+          .map((p) => {
+            // Snap trendline anchor points to the actual wick so the line
+            // touches highs (downtrend) or lows (uptrend) and never cuts
+            // through candle bodies, which would make it technically invalid.
+            let value = p.price;
+            if (TRENDLINE_TYPES.has(pattern.type)) {
+              value = wickSnap(p.time, pattern.type);
+            }
+            return { time: p.time as Time, value };
+          })
           .sort((a, b) => (a.time as number) - (b.time as number))
-          .filter((p, i, arr) => i === 0 || (p.time as number) !== (arr[i - 1].time as number));
+          .filter(
+            (p, i, arr) =>
+              i === 0 || (p.time as number) !== (arr[i - 1].time as number),
+          );
 
-        // Extend channel/wedge lines to the last bar so breakouts are visible
+        // Extend channel/wedge/flag lines to the last bar so breakouts are visible
         if (EXTENDABLE_TYPES.has(pattern.type) && data.length >= 2) {
           const p0 = data[0];
           const p1 = data[data.length - 1];
           const lastT = endTime as number;
           if ((p1.time as number) < lastT) {
-            const slope = (p1.value - p0.value) / ((p1.time as number) - (p0.time as number));
-            const extPrice = +(p1.value + slope * (lastT - (p1.time as number))).toFixed(2);
+            const slope =
+              (p1.value - p0.value) /
+              ((p1.time as number) - (p0.time as number));
+            const extPrice = +(
+              p1.value +
+              slope * (lastT - (p1.time as number))
+            ).toFixed(2);
             data = [...data, { time: endTime, value: extPrice }];
+          }
+        }
+
+        // Extend trendlines to reach their breakout marker so the arrow lands
+        // on the projected line, making the breakout visually unambiguous.
+        if (
+          TRENDLINE_TYPES.has(pattern.type) &&
+          data.length >= 2 &&
+          pattern.markers.length > 0
+        ) {
+          const latestMarkerTime = Math.max(
+            ...pattern.markers.map((m) => m.time),
+          );
+          const p0 = data[0];
+          const p1 = data[data.length - 1];
+          if ((p1.time as number) < latestMarkerTime) {
+            const slope =
+              (p1.value - p0.value) /
+              ((p1.time as number) - (p0.time as number));
+            const extPrice = +(
+              p1.value +
+              slope * (latestMarkerTime - (p1.time as number))
+            ).toFixed(2);
+            data = [
+              ...data,
+              { time: latestMarkerTime as unknown as Time, value: extPrice },
+            ];
           }
         }
 
@@ -422,47 +534,91 @@ export default function TradingChart({
         overlaySeriesRef.current.push(series);
       });
 
-      // Zone boundaries (top + bottom dashed pair)
+      // Zone boundaries + optional fill
+      const isGap = pattern.type === "gap_up" || pattern.type === "gap_down";
       pattern.zones.forEach((zone) => {
-        ([
-          [zone.priceTop,    zone.label ?? "", LineStyle.Solid],
-          [zone.priceBottom, "",               LineStyle.Dashed],
-        ] as [number, string, LineStyle][]).forEach(([price, title, style]) => {
-          const series = chart.addLineSeries({
-            color: zone.color,
+        if (isGap) {
+          // Filled rectangle: BaselineSeries (data = priceTop, base = priceBottom)
+          const gapLineColor = "rgba(74, 222, 128, 0.9)";
+          const gapFillColor = "rgba(74, 222, 128, 0.3)";
+          const filled = chart.addBaselineSeries({
+            baseValue: { type: "price", price: zone.priceBottom },
+            topLineColor: gapLineColor,
+            bottomLineColor: gapLineColor,
+            topFillColor1: gapFillColor,
+            topFillColor2: gapFillColor,
+            bottomFillColor1: "rgba(0,0,0,0)",
+            bottomFillColor2: "rgba(0,0,0,0)",
             lineWidth: 2,
-            lineStyle: style,
             priceLineVisible: false,
-            lastValueVisible: !!title,
-            title,
+            lastValueVisible: !!zone.label,
+            title: zone.label ?? "",
             crosshairMarkerVisible: false,
           });
-          series.setData([
-            { time: startTime, value: price },
-            { time: endTime,   value: price },
+          filled.setData([
+            { time: startTime, value: zone.priceTop },
+            { time: endTime, value: zone.priceTop },
           ]);
-          overlaySeriesRef.current.push(series);
-        });
+          overlaySeriesRef.current.push(
+            filled as unknown as ISeriesApi<"Line">,
+          );
+          // Bottom boundary dashed line
+          const bottom = chart.addLineSeries({
+            color: gapLineColor,
+            lineWidth: 2,
+            lineStyle: LineStyle.Dashed,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false,
+          });
+          bottom.setData([
+            { time: startTime, value: zone.priceBottom },
+            { time: endTime, value: zone.priceBottom },
+          ]);
+          overlaySeriesRef.current.push(bottom);
+        } else {
+          (
+            [
+              [zone.priceTop, zone.label ?? "", LineStyle.Solid],
+              [zone.priceBottom, "", LineStyle.Dashed],
+            ] as [number, string, LineStyle][]
+          ).forEach(([price, title, style]) => {
+            const series = chart.addLineSeries({
+              color: zone.color,
+              lineWidth: 2,
+              lineStyle: style,
+              priceLineVisible: false,
+              lastValueVisible: !!title,
+              title,
+              crosshairMarkerVisible: false,
+            });
+            series.setData([
+              { time: startTime, value: price },
+              { time: endTime, value: price },
+            ]);
+            overlaySeriesRef.current.push(series);
+          });
+        }
       });
 
       // Markers on the candle series
       if (pattern.markers.length > 0 && candleSeriesRef.current) {
-        const existing   = candleSeriesRef.current.markers?.() ?? [];
+        const existing = candleSeriesRef.current.markers?.() ?? [];
         const newMarkers = pattern.markers.map((m) => ({
-          time:     m.time as Time,
+          time: m.time as Time,
           position: m.position as "aboveBar" | "belowBar",
-          color:    m.color,
-          shape:    m.shape as "arrowUp" | "arrowDown" | "circle" | "square",
-          text:     m.text ?? "",
-          size:     1,
+          color: m.color,
+          shape: m.shape as "arrowUp" | "arrowDown" | "circle" | "square",
+          text: m.text ?? "",
+          size: 1,
         }));
         const combined = [...existing, ...newMarkers].sort(
-          (a, b) => (a.time as number) - (b.time as number)
+          (a, b) => (a.time as number) - (b.time as number),
         );
         candleSeriesRef.current.setMarkers(combined);
       }
     },
-    [bars]
+    [bars],
   );
 
   useEffect(() => {
@@ -486,7 +642,13 @@ export default function TradingChart({
 
     // Draw curves after the chart series settle
     requestAnimationFrame(drawCurvesOnCanvas);
-  }, [analysis, activePatternIds, clearOverlays, drawPattern, drawCurvesOnCanvas]);
+  }, [
+    analysis,
+    activePatternIds,
+    clearOverlays,
+    drawPattern,
+    drawCurvesOnCanvas,
+  ]);
 
   return (
     <div className="relative w-full h-full">
@@ -495,7 +657,7 @@ export default function TradingChart({
         className="w-full h-full"
         style={{ background: CHART_THEME.background }}
       />
-      {/* Canvas overlay for smooth pattern curves — pointer-events: none so chart interaction works */}
+      {/* Canvas overlay fo1r smooth pattern curves — pointer-events: none so chart interaction works */}
       <canvas
         ref={canvasRef}
         className="absolute inset-0 pointer-events-none"

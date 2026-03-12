@@ -93,7 +93,7 @@ FIELD GLOSSARY:
 - relativeStrength: stock 60d return minus SPY 60d return (higher = outperforming market)
 - rsRank: 0-100 percentile of relativeStrength across all candidates (100 = strongest)
 - isContracting: true if price range and ATR are tightening (volatility squeeze)
-- riskReward: pre-calculated based on 1.5×ATR stop, 3× risk target
+- riskReward: chart-based stop with pattern-specific measured-move target
 - entry/stopLevel/targetLevel: algorithmic levels — you may fine-tune ±5%
 
 SELECTION RULES:
@@ -103,7 +103,7 @@ SELECTION RULES:
 4. Avoid duplicating patterns — pick diverse setups across different sectors/patterns
 5. potentialReturn = (target − entry) / entry × 100 for longs (always positive %)
 6. riskReward = (target − entry) / (entry − stopLoss)
-7. confidence ≥ 80 only if pattern is clear, RSI is not overextended, and volume confirms
+7. confidence: score 70–85 for confirmed patterns; ≥ 85 requires volume confirmation + coiling + near breakout; 60–69 for weaker setups — do NOT reflexively assign low confidence just due to market regime
 8. triggers[]: 3–5 strings from the actual data, e.g.:
    "RSI 58 momentum zone", "Volume 2.1× 50d avg", "Volatility squeeze",
    "RS rank 89th pct", "Bull flag breakout within 1.2%", "Above SMA200"
@@ -115,7 +115,8 @@ Return exactly 3 picks.`;
 
 export async function analyzeScreenerCandidates(
   candidates: ScreenerCandidate[],
-  regime: MarketRegime
+  regime: MarketRegime,
+  promptAddendum = "",
 ): Promise<ScreenerPick[]> {
   if (candidates.length === 0) {
     throw new Error("No candidates to analyze — screener pipeline produced zero results");
@@ -131,7 +132,7 @@ export async function analyzeScreenerCandidates(
     },
   });
 
-  const prompt = buildPrompt(candidates, regime);
+  const prompt = buildPrompt(candidates, regime) + promptAddendum;
   const result = await model.generateContent(prompt);
   const raw = result.response.text();
   const cleaned = raw

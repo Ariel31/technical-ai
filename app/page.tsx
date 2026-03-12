@@ -1,390 +1,529 @@
 "use client";
 
+import { useState, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { useState, useCallback } from "react";
-import { Activity, Github, Brain, Loader2, Zap, Bookmark, BookmarkCheck } from "lucide-react";
-import type { AnalysisResult, AppStatus, OHLCVBar, StockDataResponse } from "@/lib/types";
-import TickerInput from "@/components/ui/TickerInput";
-import AnalysisPanel from "@/components/ui/AnalysisPanel";
-import StatusOverlay from "@/components/ui/StatusOverlay";
-import ScreenerPanel from "@/components/ui/ScreenerPanel";
-import WatchlistPanel from "@/components/ui/WatchlistPanel";
-import { useWatchlist } from "@/hooks/useWatchlist";
+import Link from "next/link";
+import AppHeader from "@/components/ui/AppHeader";
+
+const MiniChart = dynamic(() => import("@/components/ui/MiniChart"), { ssr: false });
+import {
+  Activity,
+  ArrowRight,
+  TrendingUp,
+  Zap,
+  RefreshCw,
+  Clock,
+  Target,
+  ShieldAlert,
+  BarChart2,
+  Loader2,
+  ChevronRight,
+  Sparkles,
+  AlertCircle,
+} from "lucide-react";
+import type { ScreenerPick, ScreenerResult, ScreenerStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-// TradingChart uses browser APIs — load client-side only
-const TradingChart = dynamic(() => import("@/components/chart/TradingChart"), {
-  ssr: false,
-  loading: () => <div className="w-full h-full bg-[#0a0a0f] rounded-xl animate-pulse" />,
-});
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-type Tab = "chart" | "screener";
+function timeAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const h  = Math.floor(ms / 3_600_000);
+  const m  = Math.floor((ms % 3_600_000) / 60_000);
+  if (h >= 24) return `${Math.floor(h / 24)}d ago`;
+  if (h > 0) return `${h}h ${m}m ago`;
+  return m === 0 ? "just now" : `${m}m ago`;
+}
 
-export default function HomePage() {
-  const [activeTab, setActiveTab] = useState<Tab>("chart");
+// ─── SSE scan hook ────────────────────────────────────────────────────────────
 
-  const [status, setStatus] = useState<AppStatus>("idle");
-  const [error, setError] = useState<string | undefined>();
-  const [ticker, setTicker] = useState<string>("");
-  const [bars, setBars] = useState<OHLCVBar[]>([]);
-  const [meta, setMeta] = useState<StockDataResponse["meta"] | null>(null);
-  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
-  const [activePatternIds, setActivePatternIds] = useState<Set<string>>(new Set());
-  const [showKeyLevels, setShowKeyLevels] = useState(true);
+interface ScanProgress {
+  message: string;
+  step: number;
+  totalSteps: number;
+  batch: number;
+  totalBatches: number;
+}
 
-  const { watchlist, addToWatchlist, removeFromWatchlist, reanalyze, loadCachedAnalysis } =
-    useWatchlist();
+function useScan() {
+  const [status, setStatus]     = useState<ScreenerStatus>("idle");
+  const [progress, setProgress] = useState<ScanProgress>({ message: "", step: 0, totalSteps: 3, batch: 0, totalBatches: 0 });
+  const [result, setResult]     = useState<ScreenerResult | null>(null);
+  const [pickedAt, setPickedAt] = useState<string | null>(null);
+  const [error, setError]       = useState("");
 
-  const isInWatchlist = watchlist.some((item) => item.ticker === ticker);
+  // Try to load from cache first
+  const loadCache = useCallback(async () => {
+    try {
+      const res = await fetch("/api/top-picks");
+      const data = await res.json();
+      if (data.result && data.pickedAt) {
+        // Only use cache if it was generated today (local date)
+        const pickedDate = new Date(data.pickedAt).toDateString();
+        const today      = new Date().toDateString();
+        if (pickedDate !== today) return false;   // stale — trigger fresh scan
+        if (!data.result.allCandidates)  return false;   // old schema — trigger re-scan
 
-  // ── Helpers ──────────────────────────────────────────────────────────────────
+        setResult(data.result);
+        setPickedAt(data.pickedAt);
+        setStatus("done");
+        return true;
+      }
+    } catch { /* non-fatal */ }
+    return false;
+  }, []);
 
-  function applyAnalysisResult(result: AnalysisResult) {
-    const srIds = result.patterns
-      .filter((p) => p.type === "support" || p.type === "resistance")
-      .map((p) => p.id);
-    const nonSR = result.patterns.filter(
-      (p) => p.type !== "support" && p.type !== "resistance"
-    );
-    const bestNonSR =
-      nonSR.find((p) => p.reliability === "high") ??
-      nonSR.find((p) => p.reliability === "medium") ??
-      nonSR[0];
-    setActivePatternIds(new Set([...srIds, ...(bestNonSR ? [bestNonSR.id] : [])]));
-    setAnalysis(result);
-    setStatus("done");
-  }
-
-  // ── Main analysis flow ────────────────────────────────────────────────────────
-
-  const handleAnalyze = useCallback(async (inputTicker: string) => {
-    setTicker(inputTicker);
-    setError(undefined);
-    setAnalysis(null);
-    setActivePatternIds(new Set());
-
-    // Step 1: Fetch OHLCV
-    setStatus("fetching_data");
-    let stockData: StockDataResponse;
+  const runScan = useCallback(async () => {
+    setStatus("scanning");
+    setProgress({ message: "Initializing scanner…", step: 0, totalSteps: 3, batch: 0, totalBatches: 0 });
+    setResult(null);
+    setError("");
 
     try {
-      const res = await fetch(
-        `/api/stock-data?ticker=${encodeURIComponent(inputTicker)}&timeframe=1d&bars=200`
-      );
-      if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.error ?? "Failed to fetch stock data");
+      const resp = await fetch("/api/screen", { method: "POST" });
+      if (!resp.ok || !resp.body) throw new Error("Screener request failed");
+
+      const reader  = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const ev = JSON.parse(line.slice(6));
+            if (ev.type === "progress") {
+              setStatus(ev.phase === "analyzing" ? "analyzing" : "scanning");
+              setProgress((prev) => ({
+                message:      ev.message      ?? prev.message,
+                step:         ev.step         ?? prev.step,
+                totalSteps:   ev.totalSteps   ?? prev.totalSteps,
+                batch:        ev.batch        ?? prev.batch,
+                totalBatches: ev.totalBatches ?? prev.totalBatches,
+              }));
+            } else if (ev.type === "done") {
+              setResult(ev.result);
+              setPickedAt(new Date().toISOString());
+              setStatus("done");
+            } else if (ev.type === "error") {
+              setError(ev.message);
+              setStatus("error");
+            }
+          } catch { /* malformed SSE frame — skip */ }
+        }
       }
-      stockData = await res.json();
     } catch (err) {
+      setError(err instanceof Error ? err.message : "Scan failed");
       setStatus("error");
-      setError(err instanceof Error ? err.message : "Failed to fetch stock data");
-      return;
-    }
-
-    setBars(stockData.bars);
-    setMeta(stockData.meta);
-
-    // Step 2: AI Analysis
-    setStatus("analyzing");
-
-    try {
-      const res = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticker: inputTicker, bars: stockData.bars, indicators: [] }),
-      });
-
-      if (!res.ok) {
-        let errorMsg = "AI analysis couldn't be completed. Please try again.";
-        try {
-          const body = await res.json();
-          if (body.error) errorMsg = body.error;
-        } catch { /* non-JSON error body — keep default message */ }
-        throw new Error(errorMsg);
-      }
-
-      let result: AnalysisResult;
-      try {
-        result = await res.json();
-      } catch {
-        throw new Error("The AI returned an unexpected response. Please try again.");
-      }
-
-      applyAnalysisResult(result);
-
-      // Save to DB in background so watchlist can load it instantly later
-      fetch(`/api/analysis/${encodeURIComponent(inputTicker)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bars: stockData.bars, result, meta: stockData.meta }),
-      }).catch(() => { /* non-fatal */ });
-
-    } catch (err) {
-      setStatus("done");
-      setError(err instanceof Error ? err.message : "AI analysis failed");
     }
   }, []);
 
-  // ── Load cached analysis from watchlist item click ────────────────────────────
-
-  const handleWatchlistSelect = useCallback(
-    async (t: string) => {
-      setActiveTab("chart");
-      setTicker(t);
-      setError(undefined);
-      setAnalysis(null);
-      setActivePatternIds(new Set());
-      setStatus("fetching_data");
-
-      const cached = await loadCachedAnalysis(t);
-      if (!cached) {
-        // Cache miss — fall back to live analysis
-        handleAnalyze(t);
-        return;
-      }
-
-      setBars(cached.bars);
-      setMeta(cached.meta);
-      applyAnalysisResult(cached.result);
-    },
-    [loadCachedAnalysis, handleAnalyze]
-  );
-
-  // ── Screener → Chart ──────────────────────────────────────────────────────────
-
-  function handleAnalyzeFromScreener(t: string) {
-    setActiveTab("chart");
-    handleAnalyze(t);
-  }
-
-  // ── Pattern toggle handlers ───────────────────────────────────────────────────
-
-  function handleTogglePattern(id: string) {
-    setActivePatternIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  // On mount: load cache → if empty, auto-scan
+  useEffect(() => {
+    loadCache().then((hit) => {
+      if (!hit) runScan();
     });
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  function handleToggleAll(visible: boolean) {
-    if (!analysis) return;
-    setActivePatternIds(
-      visible ? new Set(analysis.patterns.map((p) => p.id)) : new Set()
-    );
-  }
+  return { status, progress, result, pickedAt, error, runScan };
+}
 
-  function handleToggleKeyLevels(visible: boolean) {
-    setShowKeyLevels(visible);
-  }
+// ─── Scanning progress UI ─────────────────────────────────────────────────────
 
-  const showFullOverlay =
-    status === "idle" ||
-    status === "fetching_data" ||
-    (status === "error" && bars.length === 0);
-  const showAnalysisGlass = status === "analyzing" && bars.length > 0;
+const STEPS = [
+  { label: "Market regime", desc: "SPY analysis" },
+  { label: "Deep scan",     desc: "800+ stocks" },
+  { label: "AI ranking",    desc: "Gemini picks top 3" },
+];
+
+function ScanningView({ status, progress }: { status: ScreenerStatus; progress: ScanProgress }) {
+  const stepPct = progress.totalSteps > 0
+    ? ((progress.step - 1) / progress.totalSteps) * 100
+      + (progress.totalBatches > 0 ? (progress.batch / progress.totalBatches) * (100 / progress.totalSteps) : 0)
+    : 0;
 
   return (
-    <div className="flex flex-col h-dvh overflow-hidden">
-      {/* ── Top Nav ──────────────────────────────────────────────────────────── */}
-      <header className="shrink-0 border-b border-border bg-surface/80 backdrop-blur-md z-20">
-        <div className="max-w-[1800px] mx-auto px-4 py-3 flex items-center gap-4">
-          {/* Logo */}
-          <div className="flex items-center gap-2.5 shrink-0">
-            <div className="p-1.5 rounded-lg bg-accent/10 border border-accent/20">
-              <Activity className="w-5 h-5 text-accent" />
+    <div className="flex flex-col items-center gap-10 py-16">
+      {/* Spinner */}
+      <div className="relative w-20 h-20 flex items-center justify-center">
+        <div className="absolute inset-0 rounded-full border-2 border-accent/15 border-t-accent animate-spin" />
+        {status === "analyzing"
+          ? <Sparkles className="w-8 h-8 text-accent" />
+          : <BarChart2 className="w-8 h-8 text-accent" />
+        }
+      </div>
+
+      {/* Message + bar */}
+      <div className="flex flex-col items-center gap-3 w-full max-w-sm">
+        <p className="text-base font-semibold text-foreground text-center">{progress.message}</p>
+        <div className="w-full h-1.5 rounded-full bg-surface-elevated overflow-hidden">
+          <div
+            className="h-full rounded-full bg-accent transition-all duration-500"
+            style={{ width: `${Math.min(stepPct, 99)}%` }}
+          />
+        </div>
+        {progress.batch > 0 && progress.totalBatches > 0 && (
+          <p className="text-xs text-muted-foreground font-mono">
+            Batch {progress.batch} / {progress.totalBatches}
+          </p>
+        )}
+      </div>
+
+      {/* Step indicators */}
+      <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-center">
+        {STEPS.map((s, i) => {
+          const stepNum = i + 1;
+          const isDone   = progress.step > stepNum;
+          const isActive = progress.step === stepNum;
+          return (
+            <div key={s.label} className="flex items-center gap-2">
+              <div className={cn(
+                "flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl border transition-colors text-center",
+                isDone   ? "border-accent/40 bg-accent/10 text-accent" :
+                isActive ? "border-accent/60 bg-accent/15 text-accent" :
+                           "border-border text-muted-foreground"
+              )}>
+                <span className="text-[10px] font-bold uppercase tracking-wider">{s.label}</span>
+                <span className="text-[9px] opacity-70">{s.desc}</span>
+              </div>
+              {i < STEPS.length - 1 && (
+                <div className={cn("w-3 h-px", isDone ? "bg-accent/50" : "bg-border")} />
+              )}
             </div>
-            <div>
-              <span className="font-bold text-foreground tracking-tight">TechnicalAI</span>
-              <span className="hidden sm:inline ml-1.5 text-xs text-muted-foreground">
-                AI Pattern Analysis
-              </span>
-            </div>
+          );
+        })}
+      </div>
+
+      <p className="text-xs text-muted-foreground text-center max-w-xs">
+        This runs once a day. Results are cached so future visits load instantly.
+      </p>
+    </div>
+  );
+}
+
+// ─── Pick card ────────────────────────────────────────────────────────────────
+
+function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
+  const isLong  = pick.direction === "long";
+  const rr      = pick.riskReward.toFixed(1);
+  const ret     = pick.potentialReturn.toFixed(1);
+
+  const confColor =
+    pick.confidence >= 75 ? "text-bull" :
+    pick.confidence >= 55 ? "text-yellow-400" :
+    "text-muted-foreground";
+
+  return (
+    <div className={cn(
+      "relative flex flex-col gap-5 rounded-2xl border bg-surface/60 backdrop-blur-sm p-6",
+      "transition-all duration-300 hover:bg-surface/80 hover:-translate-y-0.5",
+      isLong ? "border-bull/20 hover:border-bull/40" : "border-bear/20 hover:border-bear/40",
+    )}>
+      {/* Rank */}
+      <div className="absolute -top-3 -left-3 w-7 h-7 rounded-full bg-accent/20 border border-accent/40 flex items-center justify-center text-xs font-bold text-accent">
+        {rank}
+      </div>
+
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <span className="text-2xl font-bold font-mono tracking-tight text-foreground">
+              {pick.ticker}
+            </span>
+            <span className={cn(
+              "text-[10px] font-bold px-2 py-0.5 rounded-full tracking-widest border",
+              isLong
+                ? "bg-bull/15 text-bull border-bull/30"
+                : "bg-bear/15 text-bear border-bear/30",
+            )}>
+              {isLong ? "LONG" : "SHORT"}
+            </span>
           </div>
+          <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[200px]">
+            {pick.companyName}
+          </p>
+        </div>
 
-          {/* Tab switcher */}
-          <nav className="flex items-center gap-0.5 p-0.5 rounded-lg border border-border bg-surface/60 shrink-0">
-            <button
-              onClick={() => setActiveTab("chart")}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
-                activeTab === "chart"
-                  ? "bg-accent/20 text-accent"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Activity className="w-3.5 h-3.5" />
-              Chart Analysis
-            </button>
-            <button
-              onClick={() => setActiveTab("screener")}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
-                activeTab === "screener"
-                  ? "bg-accent/20 text-accent"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Zap className="w-3.5 h-3.5" />
-              Smart Screener
-            </button>
-          </nav>
+        {/* Confidence */}
+        <div className="flex flex-col items-end gap-0.5 shrink-0">
+          <span className={cn("text-2xl font-bold font-mono leading-none", confColor)}>
+            {pick.confidence}%
+          </span>
+          <div className="w-14 h-1.5 rounded-full bg-surface-elevated overflow-hidden">
+            <div
+              className={cn("h-full rounded-full", isLong ? "bg-bull" : "bg-bear")}
+              style={{ width: `${pick.confidence}%` }}
+            />
+          </div>
+          <span className="text-[9px] text-muted-foreground tracking-wider uppercase">confidence</span>
+        </div>
+      </div>
 
-          {/* Ticker input — only visible in chart tab */}
-          {activeTab === "chart" && (
-            <div className="flex-1 max-w-xl">
-              <TickerInput
-                onAnalyze={handleAnalyze}
-                isLoading={status === "fetching_data" || status === "analyzing"}
+      {/* Pattern */}
+      <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border/70 bg-surface/50">
+        <BarChart2 className="w-3.5 h-3.5 text-accent shrink-0" />
+        <span className="text-sm font-semibold text-foreground">{pick.primaryPattern}</span>
+      </div>
+
+      {/* Mini chart */}
+      {pick.bars && pick.bars.length > 0 && (
+        <div className="rounded-xl overflow-hidden border border-border/40 bg-surface/30">
+          <MiniChart
+            bars={pick.bars}
+            entry={pick.entry}
+            stop={pick.stopLoss}
+            target={pick.target}
+            breakoutLevel={pick.breakoutLevel}
+            patternKey={pick.patternKey}
+            isLong={isLong}
+          />
+        </div>
+      )}
+
+      {/* Pipeline scores */}
+      <div className="flex flex-col gap-2">
+        {[
+          { label: "Setup Quality",     value: pick.setupScore ?? 0 },
+          { label: "Trade Opportunity", value: pick.opportunityScore ?? 0 },
+        ].map(({ label, value }) => (
+          <div key={label} className="flex items-center gap-3">
+            <span className="text-[10px] text-muted-foreground w-32 shrink-0">{label}</span>
+            <div className="flex-1 h-1.5 rounded-full bg-surface-elevated overflow-hidden">
+              <div
+                className={cn("h-full rounded-full", isLong ? "bg-bull" : "bg-bear")}
+                style={{ width: `${value}%` }}
               />
             </div>
-          )}
-
-          {/* Spacer when screener tab hides ticker input */}
-          {activeTab === "screener" && <div className="flex-1" />}
-
-          {/* Right side */}
-          <div className="flex items-center gap-3 shrink-0">
-            {activeTab === "chart" && meta && (status === "done" || status === "analyzing") && (
-              <div className="hidden md:flex flex-col items-end">
-                <span className="text-sm font-semibold text-foreground">{ticker}</span>
-                <span className="text-xs text-muted-foreground truncate max-w-[140px]">{meta.name}</span>
-              </div>
-            )}
-
-            {/* Add to Watchlist button — shown when analysis is done */}
-            {activeTab === "chart" && status === "done" && ticker && meta && (
-              <button
-                onClick={() => !isInWatchlist && addToWatchlist(ticker, meta.name)}
-                disabled={isInWatchlist}
-                title={isInWatchlist ? "Already in watchlist" : "Add to watchlist"}
-                className={cn(
-                  "p-2 rounded-lg border transition-colors",
-                  isInWatchlist
-                    ? "border-accent/30 text-accent bg-accent/10 cursor-default"
-                    : "border-border text-muted-foreground hover:text-accent hover:border-accent/50"
-                )}
-              >
-                {isInWatchlist ? (
-                  <BookmarkCheck className="w-4 h-4" />
-                ) : (
-                  <Bookmark className="w-4 h-4" />
-                )}
-              </button>
-            )}
-
-            <a
-              href="https://github.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="p-2 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-accent/50 transition-colors"
-            >
-              <Github className="w-4 h-4" />
-            </a>
+            <span className={cn("text-xs font-bold font-mono w-6 text-right shrink-0", isLong ? "text-bull" : "text-bear")}>
+              {value}
+            </span>
           </div>
-        </div>
-      </header>
+        ))}
+      </div>
 
-      {/* ── Main Layout ──────────────────────────────────────────────────────── */}
-      <main className="flex-1 min-h-0 overflow-hidden">
-
-        {/* ── Chart Tab ──────────────────────────────────────────────────────── */}
-        {activeTab === "chart" && (
-          <div className="h-full max-w-[1800px] mx-auto flex">
-
-            {/* Watchlist Left Sidebar */}
-            <WatchlistPanel
-              watchlist={watchlist}
-              activeTicker={ticker || undefined}
-              onSelect={handleWatchlistSelect}
-              onAddToWatchlist={addToWatchlist}
-              onRemove={removeFromWatchlist}
-              onReanalyze={reanalyze}
-            />
-
-            {/* Chart Area */}
-            <div className="flex-1 relative p-3 min-w-0 min-h-0 flex flex-col">
-              <div className="relative flex-1 min-h-0 rounded-xl border border-border overflow-hidden">
-
-                {bars.length > 0 && (
-                  <TradingChart
-                    bars={bars}
-                    analysis={analysis}
-                    activePatternIds={activePatternIds}
-                    keyLevels={analysis?.keyLevels ?? null}
-                    showKeyLevels={showKeyLevels}
-                  />
-                )}
-
-                {showFullOverlay && (
-                  <StatusOverlay status={status} error={error} />
-                )}
-
-                {showAnalysisGlass && (
-                  <div className="absolute inset-0 z-10 flex items-center justify-center backdrop-blur-[3px] bg-background/25">
-                    <div className="flex flex-col items-center gap-4 px-8 py-6 rounded-2xl border border-white/10 bg-surface/70 backdrop-blur-md shadow-2xl">
-                      <div className="relative flex items-center justify-center">
-                        <Loader2 className="absolute w-14 h-14 text-accent/20 animate-spin" />
-                        <Brain className="w-7 h-7 text-accent" />
-                      </div>
-                      <div className="text-center">
-                        <p className="text-sm font-semibold text-foreground">Analyzing chart patterns...</p>
-                        <p className="text-xs text-muted-foreground mt-1">AI is scanning for technical setups</p>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono px-3 py-1.5 rounded-lg border border-border/60 bg-surface/80">
-                        <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-                        Gemini 2.0 Flash
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {status === "done" && error && bars.length > 0 && (
-                  <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-4 py-2 rounded-full border border-bear/30 bg-bear/10 backdrop-blur-sm text-xs text-bear font-medium whitespace-nowrap">
-                    {error}
-                  </div>
-                )}
-
-                {(status === "done" || status === "analyzing") && bars.length > 0 && (
-                  <div className="absolute top-3 left-3 z-10 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface/80 backdrop-blur-sm border border-border">
-                    <div className="w-1.5 h-1.5 rounded-full bg-bull animate-pulse" />
-                    <span className="text-xs font-mono font-semibold text-foreground">{ticker}</span>
-                    {meta && (
-                      <span className="text-xs text-muted-foreground hidden sm:inline">
-                        • {meta.exchange} • {meta.currency}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
+      {/* Price levels */}
+      <div className="grid grid-cols-3 gap-2">
+        {[
+          { icon: Target,      label: "Entry",  value: pick.entry,    cls: "text-foreground" },
+          { icon: TrendingUp,  label: "Target", value: pick.target,   cls: "text-bull"       },
+          { icon: ShieldAlert, label: "Stop",   value: pick.stopLoss, cls: "text-bear"       },
+        ].map(({ icon: Icon, label, value, cls }) => (
+          <div key={label} className="flex flex-col items-center gap-0.5 py-2 px-1 rounded-lg border border-border/60 bg-surface/40">
+            <div className={cn("flex items-center gap-0.5 text-[9px] uppercase tracking-wider", cls)}>
+              <Icon className="w-2.5 h-2.5" />
+              {label}
             </div>
+            <span className={cn("text-sm font-bold font-mono", cls)}>${value.toFixed(2)}</span>
+          </div>
+        ))}
+      </div>
 
-            {/* Analysis Sidebar */}
-            {analysis && status === "done" && (
-              <aside className="w-80 shrink-0 border-l border-border overflow-y-auto bg-surface/50 backdrop-blur-sm p-4 animate-fade-in">
-                <AnalysisPanel
-                  analysis={analysis}
-                  activePatternIds={activePatternIds}
-                  onTogglePattern={handleTogglePattern}
-                  onToggleAll={handleToggleAll}
-                  onToggleKeyLevels={handleToggleKeyLevels}
-                  showKeyLevels={showKeyLevels}
-                  currency={meta?.currency ?? "USD"}
-                />
-              </aside>
-            )}
+      {/* Return + R/R */}
+      <div className={cn(
+        "flex items-center justify-between px-4 py-3 rounded-xl border",
+        isLong ? "border-bull/15 bg-bull/5" : "border-bear/15 bg-bear/5",
+      )}>
+        <div>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Potential</p>
+          <p className={cn("text-3xl font-bold font-mono leading-tight", isLong ? "text-bull" : "text-bear")}>
+            {pick.potentialReturn > 0 ? "+" : ""}{ret}%
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Risk / Reward</p>
+          <p className="text-2xl font-bold font-mono text-foreground leading-tight">
+            {rr}<span className="text-sm text-muted-foreground">:1</span>
+          </p>
+        </div>
+      </div>
+
+      {/* Algorithmic signals */}
+      {pick.signals?.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          {pick.signals.map((s) => (
+            <div key={s} className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className={cn("w-1 h-1 rounded-full shrink-0", isLong ? "bg-bull" : "bg-bear")} />
+              {s}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Reasoning */}
+      <p className="text-xs text-muted-foreground leading-relaxed border-t border-border/60 pt-3 line-clamp-3">
+        {pick.reasoning}
+      </p>
+
+      {/* Analyze CTA */}
+      <Link
+        href={`/app?ticker=${pick.ticker}`}
+        className={cn(
+          "flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold transition-all border",
+          isLong
+            ? "bg-bull/10 hover:bg-bull/20 border-bull/25 hover:border-bull/50 text-bull"
+            : "bg-bear/10 hover:bg-bear/20 border-bear/25 hover:border-bear/50 text-bear",
+        )}
+      >
+        <BarChart2 className="w-4 h-4" />
+        Analyze Chart
+        <ChevronRight className="w-3.5 h-3.5 ml-auto" />
+      </Link>
+    </div>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default function LandingPage() {
+  const { status, progress, result, pickedAt, error, runScan } = useScan();
+
+  const isLoading = status === "scanning" || status === "analyzing";
+  const picks = result?.picks?.slice(0, 3) ?? [];
+
+  return (
+    <div className="min-h-dvh flex flex-col">
+
+      {/* ── Nav ─────────────────────────────────────────────────────────────── */}
+      <AppHeader activePage="home" />
+
+      {/* ── Hero ────────────────────────────────────────────────────────────── */}
+      <section className="max-w-6xl mx-auto w-full px-4 sm:px-6 pt-14 pb-8">
+        <div className="flex flex-col items-center text-center gap-4">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-accent/30 bg-accent/10 text-accent text-xs font-semibold">
+            <Sparkles className="w-3.5 h-3.5" />
+            AI-powered · Updated daily
+          </div>
+
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-foreground leading-tight">
+            Top Breakout Stocks
+            <br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-accent via-accent/80 to-bull">
+              of the Day
+            </span>
+          </h1>
+
+          <p className="text-base text-muted-foreground max-w-xl">
+            Our AI scans 800+ liquid US equities, ranks them by setup quality and breakout
+            potential, then picks the 3 highest-conviction trades.
+          </p>
+
+          {/* Meta when done */}
+          {status === "done" && result && (
+            <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-muted-foreground">
+              {pickedAt && (
+                <div className="flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5" />
+                  Updated {timeAgo(pickedAt)}
+                </div>
+              )}
+              <span className="w-px h-3.5 bg-border hidden sm:block" />
+              <div className="flex items-center gap-1.5">
+                <Activity className="w-3.5 h-3.5" />
+                {result.totalScanned} stocks scanned
+              </div>
+              <span className="w-px h-3.5 bg-border hidden sm:block" />
+              <Link
+                href="/setups"
+                className="flex items-center gap-1.5 hover:text-accent transition-colors group"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                {result.filteredCount} setups found
+                <ChevronRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </Link>
+
+              <button
+                onClick={runScan}
+                className="flex items-center gap-1.5 ml-2 px-3 py-1 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-accent/40 transition-colors"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Rescan
+              </button>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ── Content ─────────────────────────────────────────────────────────── */}
+      <section className="max-w-6xl mx-auto w-full px-4 sm:px-6 pb-16 flex-1">
+
+        {/* Scanning / Analyzing */}
+        {isLoading && <ScanningView status={status} progress={progress} />}
+
+        {/* Error */}
+        {status === "error" && (
+          <div className="flex flex-col items-center gap-5 py-16">
+            <div className="p-3 rounded-full border border-bear/30 bg-bear/10">
+              <AlertCircle className="w-6 h-6 text-bear" />
+            </div>
+            <div className="text-center">
+              <p className="font-semibold text-foreground">Scan failed</p>
+              <p className="text-sm text-muted-foreground mt-1 max-w-sm">{error}</p>
+            </div>
+            <button
+              onClick={runScan}
+              className="px-4 py-2 text-sm font-medium rounded-xl border border-border text-muted-foreground hover:text-foreground hover:border-accent/40 transition-colors"
+            >
+              Try Again
+            </button>
           </div>
         )}
 
-        {/* ── Screener Tab ────────────────────────────────────────────────────── */}
-        {activeTab === "screener" && (
-          <div className="h-full overflow-y-auto">
-            <ScreenerPanel onAnalyze={handleAnalyzeFromScreener} />
+        {/* Results */}
+        {status === "done" && picks.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 animate-fade-in">
+            {picks.map((pick, i) => (
+              <PickCard key={pick.ticker} pick={pick} rank={i + 1} />
+            ))}
           </div>
         )}
-      </main>
+
+        {/* Initial loading (checking cache) */}
+        {status === "idle" && (
+          <div className="flex flex-col items-center gap-4 py-16 text-muted-foreground">
+            <Loader2 className="w-8 h-8 animate-spin" />
+            <p className="text-sm">Loading…</p>
+          </div>
+        )}
+      </section>
+
+      {/* ── CTA strip ───────────────────────────────────────────────────────── */}
+      {status === "done" && (
+        <section className="border-t border-border bg-surface/50">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 flex flex-col sm:flex-row items-center justify-between gap-6">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Go deeper</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Analyze any stock with AI pattern detection, or run a custom screener scan.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <Link
+                href="/app"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border text-sm font-semibold text-muted-foreground hover:text-foreground hover:border-accent/50 transition-colors"
+              >
+                <BarChart2 className="w-4 h-4" />
+                Chart Analyzer
+              </Link>
+              <Link
+                href="/app?tab=screener"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent/20 hover:bg-accent/30 border border-accent/30 text-accent font-semibold text-sm transition-colors"
+              >
+                <Zap className="w-4 h-4" />
+                Run Screener
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

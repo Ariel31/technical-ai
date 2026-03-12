@@ -31,7 +31,9 @@ export type PatternType =
   | "bearish_reversal"
   | "cup_and_handle"
   | "uptrend_line"
-  | "downtrend_line";
+  | "downtrend_line"
+  | "gap_up"
+  | "gap_down";
 
 export type PatternSentiment = "bullish" | "bearish" | "neutral";
 export type PatternReliability = "high" | "medium" | "low";
@@ -187,7 +189,14 @@ export type ScreenerPattern =
   | "consolidation_breakout"
   | "sma_bounce"
   | "momentum_continuation"
+  | "falling_wedge"
+  | "inverse_head_and_shoulders"
   | "none";
+
+export interface UserScreenerConfig {
+  activeFilters: string[];              // tag IDs, e.g. ["pattern_bull_flag", "rsi_momentum"]
+  filterParams: Record<string, number>; // param overrides (reserved for future per-tag inputs)
+}
 
 export interface ScreenerCandidate {
   // Identity
@@ -204,6 +213,14 @@ export interface ScreenerCandidate {
   aboveSma50: boolean;
   aboveSma150: boolean;
   aboveSma200: boolean;
+
+  // Exponential moving averages
+  ema20: number;
+  ema50: number;
+
+  // 52-week range (for Fibonacci levels)
+  high52w: number;
+  low52w:  number;
 
   // Momentum
   change5d: number;
@@ -242,8 +259,20 @@ export interface ScreenerCandidate {
   volatilityContraction: number;
   rsRank: number;               // 0-100 percentile, filled by assignRSRanks()
 
-  // Final weighted score
+  // Pipeline scores (new architecture)
+  setupScore: number;
+  opportunityScore: number;
+
+  // Final weighted score (= finalScore from pipeline)
   score: number;
+}
+
+export interface MiniBar {
+  t: number;  // Unix timestamp (seconds)
+  o: number;
+  h: number;
+  l: number;
+  c: number;
 }
 
 export interface ScreenerPick {
@@ -258,8 +287,40 @@ export interface ScreenerPick {
   potentialReturn: number;  // % from entry to target
   riskReward: number;       // e.g. 2.3 means risk 1 to make 2.3
   primaryPattern: string;   // e.g. "Bull Flag", "SMA50 Breakout"
-  triggers: string[];       // e.g. ["RSI 58", "Volume 1.9x avg"]
+  triggers: string[];       // AI-generated signals (e.g. ["RSI 58", "Volume 1.9x avg"])
+  signals: string[];        // Algorithmic signals (e.g. ["Strong uptrend", "Tight consolidation"])
   reasoning: string;
+  setupScore: number;       // 0-100 pipeline SetupScore
+  opportunityScore: number; // 0-100 pipeline OpportunityScore
+  bars?: MiniBar[];         // Last 90 OHLCV bars for the mini chart
+  breakoutLevel?: number;   // Algorithmic breakout level
+  patternKey?: string;      // Raw ScreenerPattern key (e.g. "bull_flag") for mini chart drawings
+}
+
+export interface CandidateSummary {
+  ticker: string;
+  name: string;
+  price: number;
+  pattern: ScreenerPattern;
+  primaryPattern: string;      // display name e.g. "Bull Flag"
+  score: number;               // 0-100 final pipeline score
+  setupScore: number;
+  opportunityScore: number;
+  rsi14: number;
+  volumeRatio: number;
+  riskReward: number;
+  breakoutDistance: number;    // % from breakout level
+  potentialReturn: number;     // (target - entry) / entry * 100
+  rsRank: number;
+  relativeStrength: number;    // vs SPY 60d
+  change5d: number;
+  change20d: number;
+  entry: number;
+  stopLevel: number;
+  targetLevel: number;
+  isContracting: boolean;
+  aboveSma50: boolean;
+  aboveSma200: boolean;
 }
 
 export interface ScreenerResult {
@@ -267,6 +328,7 @@ export interface ScreenerResult {
   totalScanned: number;
   filteredCount: number;
   picks: ScreenerPick[];
+  allCandidates?: CandidateSummary[];
 }
 
 export type ScreenerStatus = "idle" | "scanning" | "analyzing" | "done" | "error";
@@ -279,6 +341,13 @@ export interface WatchlistItem {
   status: "pending" | "analyzing" | "done" | "error";
   addedAt: number;       // Date.now()
   errorMessage?: string;
+  entrySignal?: {
+    direction: "long" | "short";
+    entryPrice: number;
+    stopLoss: number;
+    target: number;
+    riskRewardRatio: number;
+  };
 }
 
 export interface CachedAnalysis {

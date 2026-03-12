@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import dynamic from "next/dynamic";
+
+const MiniChart = dynamic(() => import("@/components/ui/MiniChart"), { ssr: false });
 import {
   Zap,
   TrendingUp,
-  TrendingDown,
   RefreshCw,
   Target,
   ShieldAlert,
@@ -13,22 +15,23 @@ import {
   Sparkles,
   AlertCircle,
 } from "lucide-react";
-import type { ScreenerResult, ScreenerPick, ScreenerStatus } from "@/lib/types";
+import ScreenerFilters from "@/components/ui/ScreenerFilters";
+import type { ScreenerResult, ScreenerPick, ScreenerStatus, UserScreenerConfig } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const UNIVERSE_COUNT = 600; // approximate — matches STOCK_UNIVERSE in lib/screener.ts
+const UNIVERSE_COUNT = 1000; // approximate — matches SCAN_UNIVERSE in lib/screener.ts
 
 const SECTORS = [
-  { name: "Technology",   count: 90,  examples: "AAPL · MSFT · NVDA · AMD · CRWD" },
-  { name: "Finance",      count: 80,  examples: "JPM · GS · BLK · V · COIN" },
-  { name: "Healthcare",   count: 80,  examples: "JNJ · LLY · ISRG · TMO · CRSP" },
-  { name: "Energy",       count: 60,  examples: "XOM · CVX · SLB · LNG · OXY" },
-  { name: "Industrials",  count: 70,  examples: "CAT · GE · LMT · UPS · ODFL" },
-  { name: "Consumer",     count: 80,  examples: "AMZN · HD · MCD · COST · NKE" },
-  { name: "Materials",    count: 35,  examples: "LIN · SHW · NEM · NUE · ALB" },
-  { name: "Utilities",    count: 25,  examples: "NEE · DUK · AWK · AES · BEP" },
-  { name: "REITs",        count: 40,  examples: "AMT · PLD · EQIX · EXR · VICI" },
-  { name: "ETFs",         count: 35,  examples: "SPY · QQQ · SMH · IBB · GLD" },
+  { name: "Technology",   count: 160, examples: "AAPL · MSFT · NVDA · AMD · CRWD" },
+  { name: "Finance",      count: 130, examples: "JPM · GS · BLK · V · COIN" },
+  { name: "Healthcare",   count: 120, examples: "JNJ · LLY · ISRG · TMO · CRSP" },
+  { name: "Energy",       count: 80,  examples: "XOM · CVX · SLB · LNG · OXY" },
+  { name: "Industrials",  count: 110, examples: "CAT · GE · LMT · UPS · ODFL" },
+  { name: "Consumer",     count: 130, examples: "AMZN · HD · MCD · COST · NKE" },
+  { name: "Materials",    count: 50,  examples: "LIN · SHW · NEM · NUE · ALB" },
+  { name: "Utilities",    count: 30,  examples: "NEE · DUK · AWK · AES · BEP" },
+  { name: "REITs",        count: 55,  examples: "AMT · PLD · EQIX · EXR · VICI" },
+  { name: "ETFs",         count: 55,  examples: "SPY · QQQ · SMH · IBB · GLD" },
 ];
 
 interface Props {
@@ -47,6 +50,13 @@ export default function ScreenerPanel({ onAnalyze }: Props) {
   });
   const [result, setResult] = useState<ScreenerResult | null>(null);
   const [error, setError] = useState("");
+  const [userConfig, setUserConfig] = useState<UserScreenerConfig>({
+    activeFilters: [],
+    filterParams: {},
+  });
+
+  const isCustomScan = userConfig.activeFilters.length > 0;
+  const isScanning = status === "scanning" || status === "analyzing";
 
   const runScreener = useCallback(async () => {
     setStatus("scanning");
@@ -55,7 +65,11 @@ export default function ScreenerPanel({ onAnalyze }: Props) {
     setError("");
 
     try {
-      const resp = await fetch("/api/screen", { method: "POST" });
+      const resp = await fetch("/api/screen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userConfig }),
+      });
       if (!resp.ok || !resp.body) throw new Error("Request failed");
 
       const reader = resp.body.getReader();
@@ -99,7 +113,7 @@ export default function ScreenerPanel({ onAnalyze }: Props) {
       setError(err instanceof Error ? err.message : "Screener failed");
       setStatus("error");
     }
-  }, []);
+  }, [userConfig]);
 
   return (
     <div className="min-h-full p-6 md:p-8 flex flex-col gap-8 max-w-6xl mx-auto w-full">
@@ -113,7 +127,7 @@ export default function ScreenerPanel({ onAnalyze }: Props) {
             Smart Screener
           </h2>
           <p className="text-sm text-muted-foreground mt-1.5 ml-14">
-            Scans ~{UNIVERSE_COUNT} liquid US stocks — bulk quote filter + deep SMA/RSI analysis + Gemini AI top 3
+            Scans ~{UNIVERSE_COUNT} liquid US stocks — deep SMA/RSI/volume analysis on every stock + Gemini AI top 3
           </p>
         </div>
 
@@ -123,13 +137,27 @@ export default function ScreenerPanel({ onAnalyze }: Props) {
             className="shrink-0 flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl border border-border text-muted-foreground hover:text-foreground hover:border-accent/40 transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
-            Rescan
+            {isCustomScan ? "Rescan with filters" : "Rescan"}
           </button>
         )}
       </div>
 
+      {/* ── Filters ─────────────────────────────────────────────────────────── */}
+      <ScreenerFilters
+        config={userConfig}
+        onChange={setUserConfig}
+        disabled={isScanning}
+      />
+
+      {/* ── Custom scan note ─────────────────────────────────────────────────── */}
+      {isCustomScan && status === "done" && (
+        <p className="text-xs text-muted-foreground -mt-4">
+          Custom scan — results not cached to the home page
+        </p>
+      )}
+
       {/* ── States ──────────────────────────────────────────────────────────── */}
-      {status === "idle"      && <IdleView onScan={runScreener} />}
+      {status === "idle"      && <IdleView onScan={runScreener} isCustomScan={isCustomScan} />}
       {(status === "scanning" || status === "analyzing") && (
         <ScanningView status={status} data={progressData} />
       )}
@@ -141,7 +169,7 @@ export default function ScreenerPanel({ onAnalyze }: Props) {
 
 // ─── Idle ──────────────────────────────────────────────────────────────────────
 
-function IdleView({ onScan }: { onScan: () => void }) {
+function IdleView({ onScan, isCustomScan }: { onScan: () => void; isCustomScan: boolean }) {
   return (
     <div className="flex flex-col items-center gap-10 py-6">
       {/* Scan button */}
@@ -151,10 +179,12 @@ function IdleView({ onScan }: { onScan: () => void }) {
           className="group relative flex items-center gap-3 px-10 py-5 rounded-2xl border border-accent/30 bg-accent/10 hover:bg-accent/20 hover:border-accent/60 text-accent font-bold text-lg transition-all duration-200 shadow-lg shadow-accent/5 hover:shadow-accent/15"
         >
           <Zap className="w-6 h-6 group-hover:animate-pulse" />
-          Scan Market
+          {isCustomScan ? "Scan with Filters" : "Scan Market"}
         </button>
         <p className="text-xs text-muted-foreground text-center max-w-md">
-          Runs SMA, RSI, and volume indicators on every stock, filters the best setups, then asks Gemini AI for the 3 highest-confidence trade ideas.
+          {isCustomScan
+            ? "Scanning with your selected filters — results will be ranked to match your strategy."
+            : "Runs SMA, RSI, and volume indicators on every stock, filters the best setups, then asks Gemini AI for the 3 highest-confidence trade ideas."}
         </p>
       </div>
 
@@ -402,60 +432,68 @@ function PickCard({
         <span className="text-sm font-semibold text-foreground">{pick.primaryPattern}</span>
       </div>
 
-      {/* ── Price levels ──────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-3 gap-2">
+      {/* ── Mini chart ─────────────────────────────────────────────────────── */}
+      {pick.bars && pick.bars.length > 0 && (
+        <div className="rounded-xl overflow-hidden border border-border/40 bg-surface/30">
+          <MiniChart
+            bars={pick.bars}
+            entry={pick.entry}
+            stop={pick.stopLoss}
+            target={pick.target}
+            breakoutLevel={pick.breakoutLevel}
+            patternKey={pick.patternKey}
+            isLong={isLong}
+          />
+        </div>
+      )}
+
+      {/* ── Pipeline scores ────────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-2">
         {[
-          {
-            label: "Entry",
-            value: pick.entry,
-            Icon: Target,
-            cls: "text-foreground",
-          },
-          {
-            label: "Target",
-            value: pick.target,
-            Icon: TrendingUp,
-            cls: "text-bull",
-          },
-          {
-            label: "Stop",
-            value: pick.stopLoss,
-            Icon: ShieldAlert,
-            cls: "text-bear",
-          },
-        ].map(({ label, value, Icon, cls }) => (
-          <div
-            key={label}
-            className="flex flex-col items-center gap-0.5 py-2 px-1 rounded-lg border border-border/60 bg-surface/40"
-          >
-            <div className={cn("flex items-center gap-0.5 text-[9px] uppercase tracking-wider", cls)}>
-              <Icon className="w-2.5 h-2.5" />
-              {label}
+          { label: "Setup Quality",     value: pick.setupScore ?? 0 },
+          { label: "Trade Opportunity", value: pick.opportunityScore ?? 0 },
+        ].map(({ label, value }) => (
+          <div key={label} className="flex items-center gap-3">
+            <span className="text-[10px] text-muted-foreground w-32 shrink-0">{label}</span>
+            <div className="flex-1 h-1.5 rounded-full bg-surface-elevated overflow-hidden">
+              <div
+                className={cn("h-full rounded-full", isLong ? "bg-bull" : "bg-bear")}
+                style={{ width: `${value}%` }}
+              />
             </div>
-            <span className={cn("text-sm font-bold font-mono", cls)}>
-              ${value.toFixed(2)}
+            <span className={cn("text-xs font-bold font-mono w-6 text-right shrink-0", isLong ? "text-bull" : "text-bear")}>
+              {value}
             </span>
           </div>
         ))}
       </div>
 
+      {/* ── Price levels ──────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-3 gap-2">
+        {[
+          { label: "Entry",  value: pick.entry,    Icon: Target,      cls: "text-foreground" },
+          { label: "Target", value: pick.target,   Icon: TrendingUp,  cls: "text-bull"       },
+          { label: "Stop",   value: pick.stopLoss, Icon: ShieldAlert, cls: "text-bear"       },
+        ].map(({ label, value, Icon, cls }) => (
+          <div key={label} className="flex flex-col items-center gap-0.5 py-2 px-1 rounded-lg border border-border/60 bg-surface/40">
+            <div className={cn("flex items-center gap-0.5 text-[9px] uppercase tracking-wider", cls)}>
+              <Icon className="w-2.5 h-2.5" />
+              {label}
+            </div>
+            <span className={cn("text-sm font-bold font-mono", cls)}>${value.toFixed(2)}</span>
+          </div>
+        ))}
+      </div>
+
       {/* ── Potential return + R/R ─────────────────────────────────────────── */}
-      <div
-        className={cn(
-          "flex items-center justify-between px-4 py-3 rounded-xl border",
-          isLong ? "border-bull/15 bg-bull/5" : "border-bear/15 bg-bear/5"
-        )}
-      >
+      <div className={cn(
+        "flex items-center justify-between px-4 py-3 rounded-xl border",
+        isLong ? "border-bull/15 bg-bull/5" : "border-bear/15 bg-bear/5"
+      )}>
         <div>
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Potential</p>
-          <p
-            className={cn(
-              "text-3xl font-bold font-mono leading-tight",
-              `text-${accentColor}`
-            )}
-          >
-            {pick.potentialReturn > 0 ? "+" : ""}
-            {pick.potentialReturn.toFixed(1)}%
+          <p className={cn("text-3xl font-bold font-mono leading-tight", `text-${accentColor}`)}>
+            {pick.potentialReturn > 0 ? "+" : ""}{pick.potentialReturn.toFixed(1)}%
           </p>
         </div>
         <div className="text-right">
@@ -466,17 +504,17 @@ function PickCard({
         </div>
       </div>
 
-      {/* ── Trigger badges ─────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap gap-1.5">
-        {pick.triggers.map((t) => (
-          <span
-            key={t}
-            className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-accent/20 bg-accent/10 text-accent"
-          >
-            {t}
-          </span>
-        ))}
-      </div>
+      {/* ── Algorithmic signals ────────────────────────────────────────────── */}
+      {pick.signals?.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          {pick.signals.map((s) => (
+            <div key={s} className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className={cn("w-1 h-1 rounded-full shrink-0", isLong ? "bg-bull" : "bg-bear")} />
+              {s}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── Reasoning ─────────────────────────────────────────────────────── */}
       <p className="text-xs text-muted-foreground leading-relaxed border-t border-border/60 pt-3">

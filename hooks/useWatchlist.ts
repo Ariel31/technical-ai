@@ -1,36 +1,15 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { WatchlistItem, CachedAnalysis } from "@/lib/types";
 
-const STORAGE_KEY = "watchlist";
-
-function loadFromStorage(): WatchlistItem[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const items = JSON.parse(raw) as WatchlistItem[];
-    // Reset "analyzing" items to "pending" on page reload (in-progress work was lost)
-    return items.map((item) =>
-      item.status === "analyzing" ? { ...item, status: "pending" as const } : item
-    );
-  } catch {
-    return [];
-  }
-}
-
-function saveToStorage(items: WatchlistItem[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  } catch { /* storage full or unavailable */ }
-}
+// ── Full analysis pipeline (OHLCV → Gemini) ────────────────────────────────────
 
 async function runFullAnalysis(ticker: string): Promise<{
   bars: CachedAnalysis["bars"];
   result: CachedAnalysis["result"];
   meta: CachedAnalysis["meta"];
 }> {
-  // Step 1: Fetch OHLCV
   const stockRes = await fetch(
     `/api/stock-data?ticker=${encodeURIComponent(ticker)}&timeframe=1d&bars=200`
   );
@@ -40,7 +19,6 @@ async function runFullAnalysis(ticker: string): Promise<{
   }
   const stockData = await stockRes.json();
 
-  // Step 2: AI Analysis
   const analyzeRes = await fetch("/api/analyze", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -55,22 +33,12 @@ async function runFullAnalysis(ticker: string): Promise<{
   return { bars: stockData.bars, result, meta: stockData.meta };
 }
 
+// ── Hook ──────────────────────────────────────────────────────────────────────
+
 export function useWatchlist() {
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
-  const loadedRef = useRef(false);
 
-  // Load from localStorage on mount (client only)
-  useEffect(() => {
-    setWatchlist(loadFromStorage());
-    loadedRef.current = true;
-  }, []);
-
-  // Persist to localStorage after every change (after initial load)
-  useEffect(() => {
-    if (loadedRef.current) {
-      saveToStorage(watchlist);
-    }
-  }, [watchlist]);
+  // ── React state helpers ──────────────────────────────────────────────────────
 
   const updateItem = useCallback((ticker: string, updates: Partial<WatchlistItem>) => {
     setWatchlist((prev) =>
@@ -78,13 +46,29 @@ export function useWatchlist() {
     );
   }, []);
 
+  // ── DB helpers ───────────────────────────────────────────────────────────────
+
+  const persistStatus = useCallback(
+    (ticker: string, status: "done" | "error", errorMessage?: string) => {
+      fetch(`/api/watchlist/${encodeURIComponent(ticker)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, errorMessage }),
+      }).catch(() => { /* non-fatal */ });
+    },
+    []
+  );
+
+  // ── Background analysis ──────────────────────────────────────────────────────
+
   const analyzeInBackground = useCallback(
     async (ticker: string, forceRefresh: boolean) => {
-      // Check DB cache first (unless forced refresh)
+      // Check analysis cache first (unless forced refresh)
       if (!forceRefresh) {
         const cacheRes = await fetch(`/api/analysis/${encodeURIComponent(ticker)}`);
         if (cacheRes.ok) {
           updateItem(ticker, { status: "done" });
+          persistStatus(ticker, "done");
           return;
         }
       }
@@ -92,34 +76,112 @@ export function useWatchlist() {
       try {
         const { bars, result, meta } = await runFullAnalysis(ticker);
 
-        // Save to DB (fire-and-forget; don't block the status update)
+        // Save analysis result to DB
         fetch(`/api/analysis/${encodeURIComponent(ticker)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ bars, result, meta }),
-        }).catch(() => { /* save errors are non-fatal */ });
+        }).catch(() => { /* non-fatal */ });
 
-        updateItem(ticker, { status: "done" });
+        const es = result.entrySignal?.hasEntry ? {
+          direction:       result.entrySignal.direction,
+          entryPrice:      result.entrySignal.entryPrice,
+          stopLoss:        result.entrySignal.stopLoss,
+          target:          result.entrySignal.target,
+          riskRewardRatio: result.entrySignal.riskRewardRatio,
+        } : undefined;
+        updateItem(ticker, { status: "done", entrySignal: es });
+        persistStatus(ticker, "done");
       } catch (err) {
-        updateItem(ticker, {
-          status: "error",
-          errorMessage: err instanceof Error ? err.message : "Analysis failed",
-        });
+        const errorMessage = err instanceof Error ? err.message : "Analysis failed";
+        updateItem(ticker, { status: "error", errorMessage });
+        persistStatus(ticker, "error", errorMessage);
       }
     },
-    [updateItem]
+    [updateItem, persistStatus]
   );
 
+  // ── Load watchlist from DB on mount ──────────────────────────────────────────
+
+  useEffect(() => {
+    fetch("/api/watchlist")
+      .then((res) => res.json())
+      .then((rows: Array<{
+        ticker: string;
+        name: string;
+        status: string;
+        added_at: string;
+        error_message: string | null;
+      }>) => {
+        const items: WatchlistItem[] = rows.map((row) => ({
+          ticker:       row.ticker,
+          name:         row.name,
+          // 'pending' items in DB haven't finished analysis — treat as analyzing
+          status:       row.status === "pending" ? "analyzing" : (row.status as WatchlistItem["status"]),
+          addedAt:      new Date(row.added_at).getTime(),
+          errorMessage: row.error_message ?? undefined,
+        }));
+        setWatchlist(items);
+
+        // Load entry signals for already-done items (parallel, non-blocking)
+        rows
+          .filter((row) => row.status === "done")
+          .forEach(async (row) => {
+            try {
+              const res = await fetch(`/api/analysis/${encodeURIComponent(row.ticker)}`);
+              if (!res.ok) return;
+              const data = await res.json();
+              const sig = data.result?.entrySignal;
+              if (sig?.hasEntry) {
+                setWatchlist((prev) =>
+                  prev.map((item) =>
+                    item.ticker === row.ticker
+                      ? {
+                          ...item,
+                          entrySignal: {
+                            direction:       sig.direction,
+                            entryPrice:      sig.entryPrice,
+                            stopLoss:        sig.stopLoss,
+                            target:          sig.target,
+                            riskRewardRatio: sig.riskRewardRatio,
+                          },
+                        }
+                      : item
+                  )
+                );
+              }
+            } catch { /* non-fatal */ }
+          });
+
+        // Auto-resume analysis for any items that were pending (never finished)
+        rows
+          .filter((row) => row.status === "pending")
+          .forEach((row) => analyzeInBackground(row.ticker, false));
+      })
+      .catch(() => { /* DB unavailable — start with empty list */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally runs once on mount
+
+  // ── Public API ───────────────────────────────────────────────────────────────
+
   const addToWatchlist = useCallback(
-    (ticker: string, name: string) => {
+    async (ticker: string, name: string) => {
+      // Optimistic UI update
       setWatchlist((prev) => {
-        // Don't add duplicates
         if (prev.some((item) => item.ticker === ticker)) return prev;
         return [
           ...prev,
           { ticker, name, status: "analyzing" as const, addedAt: Date.now() },
         ];
       });
+
+      // Persist to DB
+      await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticker, name }),
+      }).catch(() => { /* non-fatal */ });
+
       analyzeInBackground(ticker, false);
     },
     [analyzeInBackground]
@@ -127,6 +189,9 @@ export function useWatchlist() {
 
   const removeFromWatchlist = useCallback((ticker: string) => {
     setWatchlist((prev) => prev.filter((item) => item.ticker !== ticker));
+    fetch(`/api/watchlist/${encodeURIComponent(ticker)}`, { method: "DELETE" }).catch(
+      () => { /* non-fatal */ }
+    );
   }, []);
 
   const reanalyze = useCallback(

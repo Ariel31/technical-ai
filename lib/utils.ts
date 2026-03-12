@@ -45,6 +45,8 @@ export const PATTERN_LABELS: Record<PatternType, string> = {
   cup_and_handle: "Cup & Handle",
   uptrend_line: "Uptrend Line",
   downtrend_line: "Downtrend Line",
+  gap_up: "Gap Up",
+  gap_down: "Gap Down",
 };
 
 export function formatPrice(price: number, currency = "USD"): string {

@@ -75,6 +75,8 @@ const responseSchema = {
               "cup_and_handle",
               "uptrend_line",
               "downtrend_line",
+              "gap_up",
+              "gap_down",
             ],
           },
           label: { type: SchemaType.STRING },
@@ -281,11 +283,42 @@ PROCEDURE for each trend line — follow these steps exactly:
   Step 4. Continue scanning until you reach the end of the data OR until price clearly breaks through the line (close beyond the line by >1%). The LAST qualifying swing point before that break is point 2.
   Step 5. Set the polygon points to [point1_timestamp, point1_price] and [point2_timestamp, point2_price]. Never use an intermediate touch as point 2 when a later touch exists.
 
-- uptrend_line: diagonal support line. type="uptrend_line", sentiment="bullish". Use the procedure above with swing lows.
-- downtrend_line: diagonal resistance line. type="downtrend_line", sentiment="bearish". Use the procedure above with swing highs.
+- uptrend_line: diagonal support line. Use the procedure above with swing lows.
+- downtrend_line: diagonal resistance line. Use the procedure above with swing highs.
 - DOMINANT TREND FIRST: A trend line spanning 60-100% of the dataset with 3+ touches is always more significant than a short 2-touch line covering only a recent portion.
 - If price has already broken out, the second anchor is the last valid touch before the breakout. The breakout will be visually obvious because the candle exceeds the drawn line.
 - Include only if there are at least 2 clear touch points with confirmation.
+
+TRENDLINE SENTIMENT — this is critical, follow exactly:
+- downtrend_line INTACT (price is still below or touching the line at the latest bar): sentiment="bearish". Place an arrowDown marker at the most recent rejection candle.
+- downtrend_line BROKEN (a recent candle closed clearly above the line): sentiment="bullish". The breakout of a downtrend is a BULLISH REVERSAL signal. Place an arrowUp marker at the breakout candle.
+- uptrend_line INTACT (price is still above or touching the line at the latest bar): sentiment="bullish". Place an arrowUp marker at the most recent bounce candle.
+- uptrend_line BROKEN (a recent candle closed clearly below the line): sentiment="bearish". The breakdown of an uptrend is a BEARISH REVERSAL signal. Place an arrowDown marker at the breakdown candle.
+
+GAP DETECTION — scan every consecutive pair of bars for price gaps:
+Definition:
+- gap_up: current bar's low > previous bar's high (price jumped up, leaving an open zone below)
+- gap_down: current bar's high < previous bar's low (price dropped down, leaving an open zone above)
+Only report OPEN (unfilled) gaps — a gap is filled when any subsequent bar's range overlaps the gap zone. Limit to the 3 most significant open gaps from the last 60 bars. Skip tiny gaps (<0.3% of price).
+For each open gap:
+- zones: ONE zone entry — priceTop and priceBottom define the unfilled region:
+    gap_up:   priceTop = gap bar's low,  priceBottom = previous bar's high
+    gap_down: priceTop = previous bar's low, priceBottom = gap bar's high
+    Use the corresponding fill color (bearish fill for gap_up, bullish fill for gap_down).
+- markers: ONE arrowDown above the gap bar for gap_up; ONE arrowUp below for gap_down.
+- startTime / endTime: both set to the timestamp of the gap bar.
+SENTIMENT RULES:
+- gap_up default: sentiment="bearish" — statistically ~80% of gaps fill, so upward gaps act as magnets pulling price back down. label="Gap Up (unfilled)".
+    EXCEPTION: if gap_up occurred on volume >2× the 20-bar average AND broke out of a multi-week consolidation range, classify sentiment="bullish" (breakaway gap). label="Breakaway Gap Up".
+- gap_down default: sentiment="bullish" — the open zone below acts as a price magnet. label="Gap Down (unfilled)".
+    EXCEPTION: if gap_down broke a major support level on high volume (distributional breakdown), classify sentiment="bearish". label="Breakdown Gap Down".
+- The gap description must state: whether it is filled or open, the size as a %, and the expected fill implication.
+
+OVERALL BIAS — weight by recency and significance:
+- A trendline breakout is the most recent and most significant event — it overrides the prior trend direction.
+- If a downtrend has been broken to the upside, overallBias should be "bullish" unless other patterns strongly contradict it.
+- If an uptrend has been broken to the downside, overallBias should be "bearish" unless other patterns strongly contradict it.
+- The summary must explicitly mention the breakout and its bullish/bearish implication.
 
 Colors: bullish="${bullishColor}", bearish="${bearishColor}", neutral="${neutralColor}"
 Fill: bullish="${bullishFill}", bearish="${bearishFill}", neutral="${neutralFill}"
