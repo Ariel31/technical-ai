@@ -124,11 +124,9 @@ function useScan() {
     }
   }, []);
 
-  // On mount: load cache → if empty, auto-scan
+  // On mount: load cache — scan runs on a daily schedule via GitHub Actions
   useEffect(() => {
-    loadCache().then((hit) => {
-      if (!hit) runScan();
-    });
+    loadCache();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -498,6 +496,21 @@ export default function LandingPage() {
           <div className="flex flex-col items-center gap-4 py-16 text-muted-foreground">
             <Loader2 className="w-8 h-8 animate-spin" />
             <p className="text-sm">Loading…</p>
+          </div>
+        )}
+
+        {/* No picks yet — scan runs automatically after market close */}
+        {(status as string) === "empty" && (
+          <div className="flex flex-col items-center gap-5 py-16">
+            <div className="p-3 rounded-full border border-accent/30 bg-accent/10">
+              <Clock className="w-6 h-6 text-accent" />
+            </div>
+            <div className="text-center">
+              <p className="font-semibold text-foreground">Picks update after market close</p>
+              <p className="text-sm text-muted-foreground mt-1 max-w-sm">
+                Our AI scans 800+ stocks every weekday at 6 PM ET. Check back after market close for today&apos;s top setups.
+              </p>
+            </div>
           </div>
         )}
 

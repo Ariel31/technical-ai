@@ -14,11 +14,14 @@ export async function GET() {
   const userId = session.user.id;
 
   try {
+    // Prefer the user's own latest scan; fall back to the daily system scan
     const rows = await sql`
       SELECT result, picked_at
       FROM top_picks
-      WHERE user_id = ${userId}
-      ORDER BY picked_at DESC
+      WHERE user_id = ${userId} OR user_id = 'system'
+      ORDER BY
+        CASE WHEN user_id = ${userId} THEN 0 ELSE 1 END,
+        picked_at DESC
       LIMIT 1
     `;
 

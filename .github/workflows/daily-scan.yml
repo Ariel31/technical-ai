@@ -1,0 +1,36 @@
+name: Daily AI Scan
+
+on:
+  schedule:
+    # 22:00 UTC = 6:00 PM ET — runs after US market close, weekdays only
+    - cron: '0 22 * * 1-5'
+  workflow_dispatch:
+    # Allows manual trigger from the GitHub Actions tab
+
+jobs:
+  scan:
+    name: Run AI Screener
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run daily scan
+        run: npx tsx scripts/run-scan.ts
+        env:
+          DATABASE_URL:          ${{ secrets.DATABASE_URL }}
+          GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
+          # Always use production-quality models in the cron scan
+          GEMINI_MODEL_SCREENER: gemini-2.5-flash
+          NODE_ENV:              production
