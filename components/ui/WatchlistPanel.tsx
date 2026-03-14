@@ -328,12 +328,12 @@ function WatchlistItemCard({
             {item.ticker}
           </span>
           {isAnalyzing && (
-            <span className="text-[10px] text-muted-foreground/60">analyzing…</span>
+            <span className="text-xs text-muted-foreground">analyzing…</span>
           )}
           {isDone && item.entrySignal && (
             <span
               className={cn(
-                "text-[9px] font-bold px-1 py-px rounded tracking-widest shrink-0",
+                "text-[10px] font-bold px-1.5 py-px rounded tracking-widest shrink-0",
                 item.entrySignal.direction === "long"
                   ? "bg-bull/15 text-bull"
                   : "bg-bear/15 text-bear"
@@ -344,7 +344,7 @@ function WatchlistItemCard({
           )}
         </div>
         {item.name && item.name !== item.ticker && (
-          <p className="text-[10px] text-muted-foreground truncate mt-0.5">{item.name}</p>
+          <p className="text-xs text-muted-foreground truncate mt-0.5">{item.name}</p>
         )}
         {isDone && item.entrySignal && (
           <div className="grid grid-cols-3 gap-x-1 mt-1.5">
@@ -354,8 +354,8 @@ function WatchlistItemCard({
               { label: "Tgt",   value: item.entrySignal.target,      cls: "text-bull" },
             ].map(({ label, value, cls }) => (
               <div key={label} className="flex flex-col">
-                <span className="text-[8px] text-muted-foreground/60 uppercase tracking-wider leading-none">{label}</span>
-                <span className={cn("text-[10px] font-mono font-semibold leading-tight", cls)}>
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider leading-none">{label}</span>
+                <span className={cn("text-xs font-mono font-semibold leading-tight", cls)}>
                   ${value.toFixed(2)}
                 </span>
               </div>

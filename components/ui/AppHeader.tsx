@@ -60,13 +60,13 @@ export default function AppHeader({
           <Link
             href="/"
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+              "flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium transition-colors",
               activePage === "home"
                 ? "bg-accent/20 text-accent font-semibold"
-                : "text-muted-foreground hover:text-foreground hover:bg-surface-elevated"
+                : "text-foreground/60 hover:text-foreground hover:bg-surface-elevated"
             )}
           >
-            <TrendingUp className="w-3.5 h-3.5" />
+            <TrendingUp className="w-4 h-4" />
             <span className="hidden sm:inline">Top Picks</span>
           </Link>
 
@@ -76,13 +76,13 @@ export default function AppHeader({
           <Link
             href="/app"
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+              "flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium transition-colors",
               activePage === "chart"
-                ? "bg-accent/20 text-accent"
-                : "text-muted-foreground hover:text-foreground hover:bg-surface-elevated"
+                ? "bg-accent/20 text-accent font-semibold"
+                : "text-foreground/60 hover:text-foreground hover:bg-surface-elevated"
             )}
           >
-            <BarChart2 className="w-3.5 h-3.5" />
+            <BarChart2 className="w-4 h-4" />
             <span className="hidden sm:inline">Chart Analysis</span>
             <span className="sm:hidden">Chart</span>
           </Link>
@@ -93,13 +93,13 @@ export default function AppHeader({
           <Link
             href="/track-record"
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+              "flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium transition-colors",
               activePage === "track-record"
-                ? "bg-accent/20 text-accent"
-                : "text-muted-foreground hover:text-foreground hover:bg-surface-elevated"
+                ? "bg-accent/20 text-accent font-semibold"
+                : "text-foreground/60 hover:text-foreground hover:bg-surface-elevated"
             )}
           >
-            <Trophy className="w-3.5 h-3.5" />
+            <Trophy className="w-4 h-4" />
             <span className="hidden sm:inline">Track Record</span>
             <span className="sm:hidden">Record</span>
           </Link>

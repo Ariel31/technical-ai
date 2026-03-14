@@ -196,8 +196,8 @@ function ScanningView({ status, progress }: { status: ScreenerStatus; progress: 
                 isActive ? "border-accent/60 bg-accent/15 text-accent" :
                            "border-border text-muted-foreground"
               )}>
-                <span className="text-[10px] font-bold uppercase tracking-wider">{s.label}</span>
-                <span className="text-[9px] opacity-70">{s.desc}</span>
+                <span className="text-xs font-bold uppercase tracking-wider">{s.label}</span>
+                <span className="text-[10px] opacity-80">{s.desc}</span>
               </div>
               {i < STEPS.length - 1 && (
                 <div className={cn("w-3 h-px", isDone ? "bg-accent/50" : "bg-border")} />
@@ -253,7 +253,7 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
               {isLong ? "LONG" : "SHORT"}
             </span>
           </div>
-          <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[200px]">
+          <p className="text-sm text-muted-foreground mt-0.5 truncate max-w-[200px]">
             {pick.companyName}
           </p>
         </div>
@@ -269,7 +269,7 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
               style={{ width: `${pick.confidence}%` }}
             />
           </div>
-          <span className="text-[9px] text-muted-foreground tracking-wider uppercase">confidence</span>
+          <span className="text-[10px] text-muted-foreground tracking-wider uppercase">confidence</span>
         </div>
       </div>
 
@@ -301,7 +301,7 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
           { label: "Trade Opportunity", value: pick.opportunityScore ?? 0 },
         ].map(({ label, value }) => (
           <div key={label} className="flex items-center gap-3">
-            <span className="text-[10px] text-muted-foreground w-32 shrink-0">{label}</span>
+            <span className="text-xs text-muted-foreground w-32 shrink-0">{label}</span>
             <div className="flex-1 h-1.5 rounded-full bg-surface-elevated overflow-hidden">
               <div
                 className={cn("h-full rounded-full", isLong ? "bg-bull" : "bg-bear")}
@@ -323,7 +323,7 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
           { icon: ShieldAlert, label: "Stop",   value: pick.stopLoss, cls: "text-bear"       },
         ].map(({ icon: Icon, label, value, cls }) => (
           <div key={label} className="flex flex-col items-center gap-0.5 py-2 px-1 rounded-lg border border-border/60 bg-surface/40">
-            <div className={cn("flex items-center gap-0.5 text-[9px] uppercase tracking-wider", cls)}>
+            <div className={cn("flex items-center gap-0.5 text-[10px] uppercase tracking-wider", cls)}>
               <Icon className="w-2.5 h-2.5" />
               {label}
             </div>
@@ -338,13 +338,13 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
         isLong ? "border-bull/15 bg-bull/5" : "border-bear/15 bg-bear/5",
       )}>
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Potential</p>
+          <p className="text-xs text-muted-foreground uppercase tracking-wider">Potential</p>
           <p className={cn("text-3xl font-bold font-mono leading-tight", isLong ? "text-bull" : "text-bear")}>
             {pick.potentialReturn > 0 ? "+" : ""}{ret}%
           </p>
         </div>
         <div className="text-right">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Risk / Reward</p>
+          <p className="text-xs text-muted-foreground uppercase tracking-wider">Risk / Reward</p>
           <p className="text-2xl font-bold font-mono text-foreground leading-tight">
             {rr}<span className="text-sm text-muted-foreground">:1</span>
           </p>
@@ -355,7 +355,7 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
       {pick.signals?.length > 0 && (
         <div className="flex flex-col gap-1.5">
           {pick.signals.map((s) => (
-            <div key={s} className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div key={s} className="flex items-center gap-2 text-sm text-muted-foreground">
               <div className={cn("w-1 h-1 rounded-full shrink-0", isLong ? "bg-bull" : "bg-bear")} />
               {s}
             </div>
@@ -364,7 +364,7 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
       )}
 
       {/* Reasoning */}
-      <p className="text-xs text-muted-foreground leading-relaxed border-t border-border/60 pt-3 line-clamp-3">
+      <p className="text-sm text-muted-foreground leading-relaxed border-t border-border/60 pt-3 line-clamp-3">
         {pick.reasoning}
       </p>
 
