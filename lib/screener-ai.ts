@@ -3,6 +3,7 @@ import {
   SchemaType,
   type Schema,
 } from "@google/generative-ai";
+import { AI_MODELS } from "./ai-config";
 import type { MarketRegime, ScreenerCandidate, ScreenerPick } from "./types";
 
 // ─── Response schema (unchanged — ScreenerPick shape) ────────────────────────
@@ -124,7 +125,7 @@ export async function analyzeScreenerCandidates(
 
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash",
+    model: AI_MODELS.screenerRanking,
     generationConfig: {
       responseMimeType: "application/json",
       responseSchema: screenerSchema as unknown as Schema,

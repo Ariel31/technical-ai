@@ -4,6 +4,7 @@ import {
   type GenerationConfig,
   type Schema,
 } from "@google/generative-ai";
+import { AI_MODELS } from "./ai-config";
 import type {
   AnalyzeRequest,
   AnalysisResult,
@@ -898,7 +899,7 @@ export async function analyzeChart(
   console.log("[Gemini] Using API key:", apiKey.slice(0, 8) + "...");
 
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash",
+    model: AI_MODELS.chartAnalysis,
     generationConfig,
   });
 

@@ -2,6 +2,7 @@
 // Can be triggered manually (Refresh Prices button) or by a cron job.
 
 import sql from "@/lib/db";
+import { auth } from "@/auth";
 import { fetchStockData } from "@/lib/yahoo-finance";
 import type { SetupStatus } from "@/lib/types";
 
@@ -13,11 +14,15 @@ export const maxDuration = 60;
 const EXPIRE_DAYS = 42;
 
 export async function POST() {
+  const session = await auth();
+  if (!session?.user?.id) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const userId = session.user.id;
+
   try {
     const rows = await sql`
       SELECT id, ticker, entry_price, stop_price, target_price, status, created_at
       FROM setups
-      WHERE status IN ('PENDING', 'ACTIVE')
+      WHERE user_id = ${userId} AND status IN ('PENDING', 'ACTIVE')
     ` as {
       id: string;
       ticker: string;

@@ -156,6 +156,7 @@ export default function WatchlistPanel({
           onClick={() => setCollapsed(true)}
           className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-elevated transition-colors"
           title="Collapse"
+          suppressHydrationWarning
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
@@ -174,6 +175,7 @@ export default function WatchlistPanel({
               autoCapitalize="characters"
               autoComplete="off"
               spellCheck={false}
+              suppressHydrationWarning
               className={cn(
                 "w-full pl-7 pr-2 py-1.5 rounded-lg border text-xs font-mono",
                 "bg-surface border-border text-foreground placeholder:text-muted-foreground",

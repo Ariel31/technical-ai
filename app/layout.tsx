@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import SessionProvider from "@/components/SessionProvider";
+import ConsentModal from "@/components/ui/ConsentModal";
 
 export const metadata: Metadata = {
   title: "TechnicalAI — AI-Powered Technical Analysis",
@@ -37,7 +39,10 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className="bg-noise bg-grid antialiased">
-        {children}
+        <SessionProvider>
+          {children}
+          <ConsentModal />
+        </SessionProvider>
       </body>
     </html>
   );

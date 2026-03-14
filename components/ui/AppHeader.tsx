@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Activity, TrendingUp, BarChart2, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
+import UserMenu from "@/components/ui/UserMenu";
 
 export type ActivePage = "home" | "chart" | "track-record";
 
@@ -49,6 +50,9 @@ export default function AppHeader({
             {rightSlot}
           </div>
         )}
+
+        {/* User avatar + sign-out */}
+        <UserMenu />
 
         {/* Nav pill — always rightmost */}
         <nav className="flex items-center gap-0.5 p-1 rounded-xl border border-border bg-surface/60 shrink-0">

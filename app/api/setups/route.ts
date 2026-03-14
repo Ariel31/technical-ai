@@ -23,6 +23,7 @@
 //   );
 
 import sql from "@/lib/db";
+import { auth } from "@/auth";
 import type { TrackedSetup } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -52,6 +53,10 @@ function rowToSetup(r: Record<string, unknown>): TrackedSetup {
 }
 
 export async function GET(req: Request) {
+  const session = await auth();
+  if (!session?.user?.id) return Response.json([], { status: 401 });
+  const userId = session.user.id;
+
   try {
     const url = new URL(req.url);
     const statusParam = url.searchParams.get("status");
@@ -61,12 +66,13 @@ export async function GET(req: Request) {
       const statuses = statusParam.split(",").map((s) => s.trim());
       rows = await sql`
         SELECT * FROM setups
-        WHERE status = ANY(${statuses})
+        WHERE user_id = ${userId} AND status = ANY(${statuses})
         ORDER BY created_at DESC
       ` as Record<string, unknown>[];
     } else {
       rows = await sql`
         SELECT * FROM setups
+        WHERE user_id = ${userId}
         ORDER BY created_at DESC
       ` as Record<string, unknown>[];
     }

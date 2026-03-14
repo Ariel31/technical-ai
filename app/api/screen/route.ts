@@ -1,5 +1,6 @@
 import { fetchStockData } from "@/lib/yahoo-finance";
 import sql from "@/lib/db";
+import { auth } from "@/auth";
 import {
   SCAN_UNIVERSE,
   computeIndicators,
@@ -37,7 +38,13 @@ function sse(data: object): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);
 }
 
-export async function POST() {
+export async function POST(_req: Request) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const userId = session.user.id;
+
   const stream = new ReadableStream({
     async start(controller) {
       const send = (data: object) => {
@@ -219,16 +226,16 @@ export async function POST() {
 
         send({ type: "done", result: screenerResult });
 
-        // Save to top_picks cache
+        // Save to top_picks cache (per user — delete only this user's old row)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        sql`DELETE FROM top_picks`
-          .then(() => sql`INSERT INTO top_picks (result, picked_at) VALUES (${sql.json(screenerResult as any)}, now())`)
+        sql`DELETE FROM top_picks WHERE user_id = ${userId}`
+          .then(() => sql`INSERT INTO top_picks (user_id, result, picked_at) VALUES (${userId}, ${sql.json(screenerResult as any)}, now())`)
           .catch(() => { /* non-fatal */ });
 
-        // Auto-save picks as tracked setups (skip tickers already PENDING/ACTIVE)
+        // Auto-save picks as tracked setups (skip tickers already PENDING/ACTIVE for this user)
         try {
           const existingRows = await sql`
-            SELECT ticker FROM setups WHERE status IN ('PENDING', 'ACTIVE')
+            SELECT ticker FROM setups WHERE user_id = ${userId} AND status IN ('PENDING', 'ACTIVE')
           `;
           const tracked = new Set((existingRows as { ticker: string }[]).map((r) => r.ticker));
 
@@ -236,10 +243,10 @@ export async function POST() {
             if (!tracked.has(pick.ticker)) {
               await sql`
                 INSERT INTO setups
-                  (ticker, company_name, pattern, confidence, entry_price, stop_price, target_price,
+                  (user_id, ticker, company_name, pattern, confidence, entry_price, stop_price, target_price,
                    scan_source, setup_score, opportunity_score, reasoning)
                 VALUES
-                  (${pick.ticker}, ${pick.companyName}, ${pick.primaryPattern},
+                  (${userId}, ${pick.ticker}, ${pick.companyName}, ${pick.primaryPattern},
                    ${pick.confidence}, ${pick.entry}, ${pick.stopLoss}, ${pick.target},
                    'homepage', ${pick.setupScore ?? null}, ${pick.opportunityScore ?? null},
                    ${pick.reasoning ?? null})

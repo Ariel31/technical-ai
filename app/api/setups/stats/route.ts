@@ -1,15 +1,27 @@
 // GET /api/setups/stats — aggregate win/loss statistics across all tracked setups
 
 import sql from "@/lib/db";
+import { auth } from "@/auth";
 import type { TrackRecordStats } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    const empty: TrackRecordStats = {
+      totalSetups: 0, wins: 0, losses: 0, winRate: 0,
+      avgReturn: 0, avgWin: 0, avgLoss: 0,
+      bestTrade: 0, worstTrade: 0, activeCount: 0,
+    };
+    return Response.json(empty, { status: 401 });
+  }
+  const userId = session.user.id;
+
   try {
     const rows = await sql`
-      SELECT status, result, return_percent FROM setups
+      SELECT status, result, return_percent FROM setups WHERE user_id = ${userId}
     ` as { status: string; result: string | null; return_percent: number | null }[];
 
     const closed = rows.filter((r) => r.result === "WIN" || r.result === "LOSS");
