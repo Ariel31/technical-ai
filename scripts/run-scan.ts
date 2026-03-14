@@ -20,10 +20,11 @@ import {
 } from "../lib/screener";
 import { analyzeScreenerCandidates } from "../lib/screener-ai";
 import { generateSignals } from "../lib/pipeline";
-import type { MarketRegime, ScreenerCandidate } from "../lib/types";
+import type { CandidateSummary, MarketRegime, ScreenerCandidate } from "../lib/types";
 
 const OHLCV_BATCH_SIZE = 20;
 const AI_CANDIDATE_COUNT = 20;
+const ALL_CANDIDATE_COUNT = 50;
 const SYSTEM_USER_ID = "system";
 
 const PATTERN_DISPLAY: Record<string, string> = {
@@ -100,7 +101,8 @@ async function main() {
   log(`Deep analysis complete: ${deepCandidates.length} candidates passed filters`);
 
   assignRSRanks(deepCandidates);
-  const aiCandidates = getTopCandidates(deepCandidates, AI_CANDIDATE_COUNT, 1.8);
+  const allCandidates = getTopCandidates(deepCandidates, ALL_CANDIDATE_COUNT, 1.5);
+  const aiCandidates  = getTopCandidates(deepCandidates, AI_CANDIDATE_COUNT, 1.8);
 
   // ── Phase 3: AI ranking ───────────────────────────────────────────────────
   log(`AI ranking top ${aiCandidates.length} setups…`);
@@ -134,11 +136,33 @@ async function main() {
 
   picks.sort((a, b) => (b.setupScore + b.opportunityScore) - (a.setupScore + a.opportunityScore));
 
+  const candidateSummaries: CandidateSummary[] = allCandidates.map((c) => ({
+    ticker: c.ticker, name: c.name, price: c.price,
+    pattern: c.pattern,
+    primaryPattern: PATTERN_DISPLAY[c.pattern] ?? c.pattern,
+    score:            +c.score.toFixed(1),
+    setupScore:       +c.setupScore.toFixed(1),
+    opportunityScore: +c.opportunityScore.toFixed(1),
+    rsi14:            +c.rsi14.toFixed(0),
+    volumeRatio:      +c.volumeRatio.toFixed(2),
+    riskReward:       +c.riskReward.toFixed(2),
+    breakoutDistance: +c.breakoutDistance.toFixed(1),
+    potentialReturn:  +((c.targetLevel - c.entry) / c.entry * 100).toFixed(1),
+    rsRank:           c.rsRank,
+    relativeStrength: +c.relativeStrength.toFixed(1),
+    change5d:         +c.change5d.toFixed(1),
+    change20d:        +c.change20d.toFixed(1),
+    isContracting:    c.isContracting,
+    aboveSma50:       c.aboveSma50,
+    aboveSma200:      c.aboveSma200,
+  }));
+
   const screenerResult = {
     screenedAt:    new Date().toISOString(),
     totalScanned:  deepCandidates.length,
-    filteredCount: aiCandidates.length,
+    filteredCount: allCandidates.length,
     picks,
+    allCandidates: candidateSummaries,
   };
 
   // ── Save to DB ────────────────────────────────────────────────────────────
