@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import AppHeader from "@/components/ui/AppHeader";
@@ -47,36 +48,43 @@ interface ScanProgress {
 }
 
 function useScan() {
+  const queryClient = useQueryClient();
   const [status, setStatus]     = useState<ScreenerStatus>("idle");
   const [progress, setProgress] = useState<ScanProgress>({ message: "", step: 0, totalSteps: 3, batch: 0, totalBatches: 0 });
-  const [result, setResult]     = useState<ScreenerResult | null>(null);
-  const [pickedAt, setPickedAt] = useState<string | null>(null);
+  const [scanResult, setScanResult] = useState<ScreenerResult | null>(null);
+  const [scanPickedAt, setScanPickedAt] = useState<string | null>(null);
   const [error, setError]       = useState("");
 
-  // Try to load from cache first
-  const loadCache = useCallback(async () => {
-    try {
-      const res = await fetch("/api/top-picks");
+  // React Query cache for top-picks — loads instantly on revisit
+  const { data: cached } = useQuery({
+    queryKey: ["top-picks"],
+    queryFn: async () => {
+      const res  = await fetch("/api/top-picks");
       const data = await res.json();
-      if (data.result && data.pickedAt) {
-        // Only use cache if it was generated today (local date)
-        const pickedDate = new Date(data.pickedAt).toDateString();
-        const today      = new Date().toDateString();
-        if (pickedDate !== today) return false;   // stale — trigger fresh scan
+      return data as { result: ScreenerResult | null; pickedAt: string | null };
+    },
+    staleTime: 60 * 60 * 1000, // 1 hour — top picks only change once daily
+  });
 
-        setResult(data.result);
-        setPickedAt(data.pickedAt);
+  // Hydrate status from cache on first load
+  useEffect(() => {
+    if (cached?.result && cached?.pickedAt && status === "idle") {
+      const pickedDate = new Date(cached.pickedAt).toDateString();
+      const today      = new Date().toDateString();
+      if (pickedDate === today) {
         setStatus("done");
-        return true;
+      } else {
+        setStatus("empty" as ScreenerStatus);
       }
-    } catch { /* non-fatal */ }
-    return false;
-  }, []);
+    } else if (cached !== undefined && !cached?.result && status === "idle") {
+      setStatus("empty" as ScreenerStatus);
+    }
+  }, [cached, status]);
 
   const runScan = useCallback(async () => {
     setStatus("scanning");
     setProgress({ message: "Initializing scanner…", step: 0, totalSteps: 3, batch: 0, totalBatches: 0 });
-    setResult(null);
+    setScanResult(null);
     setError("");
 
     try {
@@ -108,9 +116,12 @@ function useScan() {
                 totalBatches: ev.totalBatches ?? prev.totalBatches,
               }));
             } else if (ev.type === "done") {
-              setResult(ev.result);
-              setPickedAt(new Date().toISOString());
+              const now = new Date().toISOString();
+              setScanResult(ev.result);
+              setScanPickedAt(now);
               setStatus("done");
+              // Update the React Query cache so the result is reused on next visit
+              queryClient.setQueryData(["top-picks"], { result: ev.result, pickedAt: now });
             } else if (ev.type === "error") {
               setError(ev.message);
               setStatus("error");
@@ -122,13 +133,10 @@ function useScan() {
       setError(err instanceof Error ? err.message : "Scan failed");
       setStatus("error");
     }
-  }, []);
+  }, [queryClient]);
 
-  // On mount: load cache — scan runs on a daily schedule via GitHub Actions
-  useEffect(() => {
-    loadCache();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const result   = scanResult   ?? cached?.result   ?? null;
+  const pickedAt = scanPickedAt ?? cached?.pickedAt ?? null;
 
   return { status, progress, result, pickedAt, error, runScan };
 }
@@ -382,14 +390,12 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
 
 export default function LandingPage() {
   const { status, progress, result, pickedAt, error, runScan } = useScan();
-  const [trackStats, setTrackStats] = useState<TrackRecordStats | null>(null);
 
-  useEffect(() => {
-    fetch("/api/setups/stats")
-      .then((r) => r.json())
-      .then((s: TrackRecordStats) => { if (s.totalSetups > 0) setTrackStats(s); })
-      .catch(() => { /* non-fatal */ });
-  }, []);
+  const { data: trackStats } = useQuery<TrackRecordStats>({
+    queryKey: ["setups-stats"],
+    queryFn: () => fetch("/api/setups/stats").then((r) => r.json()),
+    select: (s) => (s.totalSetups > 0 ? s : undefined),
+  });
 
   const isLoading = status === "scanning" || status === "analyzing";
   const picks = result?.picks?.slice(0, 3) ?? [];

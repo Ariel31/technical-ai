@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import SessionProvider from "@/components/SessionProvider";
+import QueryProvider from "@/components/QueryProvider";
 import ConsentModal from "@/components/ui/ConsentModal";
 
 export const metadata: Metadata = {
@@ -40,8 +41,10 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className="bg-noise bg-grid antialiased">
         <SessionProvider>
-          {children}
-          <ConsentModal />
+          <QueryProvider>
+            {children}
+            <ConsentModal />
+          </QueryProvider>
         </SessionProvider>
       </body>
     </html>

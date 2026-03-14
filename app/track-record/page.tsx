@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import AppHeader from "@/components/ui/AppHeader";
 import {
@@ -166,34 +167,34 @@ function HistoryRow({ s }: { s: TrackedSetup }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function TrackRecordPage() {
-  const [stats, setStats] = useState<TrackRecordStats | null>(null);
-  const [setups, setSetups] = useState<TrackedSetup[]>([]);
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState<"live" | "history">("live");
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadData = useCallback(async () => {
-    const [statsRes, setupsRes] = await Promise.all([
-      fetch("/api/setups/stats"),
-      fetch("/api/setups"),
-    ]);
-    if (statsRes.ok)  setStats(await statsRes.json());
-    if (setupsRes.ok) setSetups(await setupsRes.json());
-  }, []);
+  const { data: stats, isLoading: statsLoading } = useQuery<TrackRecordStats>({
+    queryKey: ["setups-stats"],
+    queryFn: () => fetch("/api/setups/stats").then((r) => r.json()),
+  });
 
-  useEffect(() => {
-    loadData().finally(() => setLoading(false));
-  }, [loadData]);
+  const { data: setups = [], isLoading: setupsLoading } = useQuery<TrackedSetup[]>({
+    queryKey: ["setups"],
+    queryFn: () => fetch("/api/setups").then((r) => r.json()),
+  });
 
-  async function handleRefresh() {
+  const loading = statsLoading || setupsLoading;
+
+  const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
       await fetch("/api/setups/monitor", { method: "POST" });
-      await loadData();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["setups"] }),
+        queryClient.invalidateQueries({ queryKey: ["setups-stats"] }),
+      ]);
     } finally {
       setRefreshing(false);
     }
-  }
+  }, [queryClient]);
 
   const live    = setups.filter((s) => s.status === "PENDING" || s.status === "ACTIVE");
   const history = setups.filter((s) => s.status === "TARGET_HIT" || s.status === "STOP_HIT" || s.status === "EXPIRED");
