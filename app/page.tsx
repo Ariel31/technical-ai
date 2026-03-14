@@ -391,7 +391,7 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
 export default function LandingPage() {
   const { status, progress, result, pickedAt, error, runScan } = useScan();
 
-  const { data: trackStats } = useQuery<TrackRecordStats>({
+  const { data: trackStats } = useQuery<TrackRecordStats, Error, TrackRecordStats | undefined>({
     queryKey: ["setups-stats"],
     queryFn: () => fetch("/api/setups/stats").then((r) => r.json()),
     select: (s) => (s.totalSetups > 0 ? s : undefined),
