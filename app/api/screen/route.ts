@@ -237,7 +237,7 @@ export async function POST(_req: Request) {
           const existingRows = await sql`
             SELECT ticker FROM setups WHERE user_id = ${userId} AND status IN ('PENDING', 'ACTIVE')
           `;
-          const tracked = new Set((existingRows as { ticker: string }[]).map((r) => r.ticker));
+          const tracked = new Set((existingRows as unknown as { ticker: string }[]).map((r) => r.ticker));
 
           for (const pick of picks) {
             if (!tracked.has(pick.ticker)) {
