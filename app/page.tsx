@@ -23,6 +23,7 @@ import {
   AlertCircle,
   Trophy,
 } from "lucide-react";
+import { useSession } from "next-auth/react";
 import type { ScreenerPick, ScreenerResult, ScreenerStatus, TrackRecordStats } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -390,6 +391,8 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
 
 export default function LandingPage() {
   const { status, progress, result, pickedAt, error, runScan } = useScan();
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.email === process.env.NEXT_PUBLIC_ADMIN_EMAIL;
 
   const { data: trackStats } = useQuery<TrackRecordStats, Error, TrackRecordStats | undefined>({
     queryKey: ["setups-stats"],
@@ -451,13 +454,16 @@ export default function LandingPage() {
                 <ChevronRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
               </Link>
 
-              <button
-                onClick={runScan}
-                className="flex items-center gap-1.5 ml-2 px-3 py-1 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-accent/40 transition-colors"
-              >
-                <RefreshCw className="w-3 h-3" />
-                Rescan
-              </button>
+              {isAdmin && (
+                <button
+                  onClick={runScan}
+                  disabled={isLoading}
+                  className="flex items-center gap-1.5 ml-2 px-3 py-1 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-accent/40 transition-colors disabled:opacity-40"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  Rescan
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -517,6 +523,15 @@ export default function LandingPage() {
                 Our AI scans 800+ stocks every weekday at 6 PM ET. Check back after market close for today&apos;s top setups.
               </p>
             </div>
+            {isAdmin && (
+              <button
+                onClick={runScan}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-accent/40 bg-accent/10 text-accent text-sm font-semibold hover:bg-accent/20 transition-colors"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Run Scan Now
+              </button>
+            )}
           </div>
         )}
 

@@ -5,8 +5,8 @@ export default auth((req) => {
   const { pathname } = req.nextUrl;
   const isLoggedIn = !!req.auth;
 
-  // Always allow: NextAuth's own routes, login page, and public legal pages
-  if (pathname.startsWith("/api/auth") || pathname === "/login" || pathname.startsWith("/legal")) {
+  // Always allow: NextAuth's own routes, login page, public legal pages, and cron endpoints
+  if (pathname.startsWith("/api/auth") || pathname.startsWith("/api/cron") || pathname === "/login" || pathname.startsWith("/legal")) {
     return NextResponse.next();
   }
 
