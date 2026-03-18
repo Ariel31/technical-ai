@@ -10,12 +10,9 @@ const MiniChart = dynamic(() => import("@/components/ui/MiniChart"), { ssr: fals
 import {
   Activity,
   ArrowRight,
-  TrendingUp,
   Zap,
   RefreshCw,
   Clock,
-  Target,
-  ShieldAlert,
   BarChart2,
   Loader2,
   ChevronRight,
@@ -70,13 +67,7 @@ function useScan() {
   // Hydrate status from cache on first load
   useEffect(() => {
     if (cached?.result && cached?.pickedAt && status === "idle") {
-      const pickedDate = new Date(cached.pickedAt).toDateString();
-      const today      = new Date().toDateString();
-      if (pickedDate === today) {
-        setStatus("done");
-      } else {
-        setStatus("empty" as ScreenerStatus);
-      }
+      setStatus("done");
     } else if (cached !== undefined && !cached?.result && status === "idle") {
       setStatus("empty" as ScreenerStatus);
     }
@@ -219,9 +210,6 @@ function ScanningView({ status, progress }: { status: ScreenerStatus; progress: 
 
 function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
   const isLong  = pick.direction === "long";
-  const rr      = pick.riskReward.toFixed(1);
-  const ret     = pick.potentialReturn.toFixed(1);
-
   const confColor =
     pick.confidence >= 75 ? "text-bull" :
     pick.confidence >= 55 ? "text-yellow-400" :
@@ -274,10 +262,13 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
         </div>
       </div>
 
-      {/* Pattern */}
-      <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border/70 bg-surface/50">
-        <BarChart2 className="w-3.5 h-3.5 text-accent shrink-0" />
-        <span className="text-sm font-semibold text-foreground">{pick.primaryPattern}</span>
+      {/* Pattern + current price */}
+      <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-border/70 bg-surface/50">
+        <div className="flex items-center gap-2">
+          <BarChart2 className="w-3.5 h-3.5 text-accent shrink-0" />
+          <span className="text-sm font-semibold text-foreground">{pick.primaryPattern}</span>
+        </div>
+        <span className="text-sm font-mono text-muted-foreground">${pick.currentPrice.toFixed(2)}</span>
       </div>
 
       {/* Mini chart */}
@@ -285,9 +276,6 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
         <div className="rounded-xl overflow-hidden border border-border/40 bg-surface/30">
           <MiniChart
             bars={pick.bars}
-            entry={pick.entry}
-            stop={pick.stopLoss}
-            target={pick.target}
             breakoutLevel={pick.breakoutLevel}
             patternKey={pick.patternKey}
             isLong={isLong}
@@ -314,42 +302,6 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
             </span>
           </div>
         ))}
-      </div>
-
-      {/* Price levels */}
-      <div className="grid grid-cols-3 gap-2">
-        {[
-          { icon: Target,      label: "Entry",  value: pick.entry,    cls: "text-foreground" },
-          { icon: TrendingUp,  label: "Target", value: pick.target,   cls: "text-bull"       },
-          { icon: ShieldAlert, label: "Stop",   value: pick.stopLoss, cls: "text-bear"       },
-        ].map(({ icon: Icon, label, value, cls }) => (
-          <div key={label} className="flex flex-col items-center gap-0.5 py-2 px-1 rounded-lg border border-border/60 bg-surface/40">
-            <div className={cn("flex items-center gap-0.5 text-[10px] uppercase tracking-wider", cls)}>
-              <Icon className="w-2.5 h-2.5" />
-              {label}
-            </div>
-            <span className={cn("text-sm font-bold font-mono", cls)}>${value.toFixed(2)}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Return + R/R */}
-      <div className={cn(
-        "flex items-center justify-between px-4 py-3 rounded-xl border",
-        isLong ? "border-bull/15 bg-bull/5" : "border-bear/15 bg-bear/5",
-      )}>
-        <div>
-          <p className="text-xs text-muted-foreground uppercase tracking-wider">Potential</p>
-          <p className={cn("text-3xl font-bold font-mono leading-tight", isLong ? "text-bull" : "text-bear")}>
-            {pick.potentialReturn > 0 ? "+" : ""}{ret}%
-          </p>
-        </div>
-        <div className="text-right">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider">Risk / Reward</p>
-          <p className="text-2xl font-bold font-mono text-foreground leading-tight">
-            {rr}<span className="text-sm text-muted-foreground">:1</span>
-          </p>
-        </div>
       </div>
 
       {/* Algorithmic signals */}

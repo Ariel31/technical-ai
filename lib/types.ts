@@ -149,10 +149,21 @@ export interface StockDataResponse {
   };
 }
 
+export interface ScreenerContext {
+  direction: "long" | "short";
+  pattern: string;
+  entry: number;
+  stopLoss: number;
+  target: number;
+  confidence: number;
+}
+
 export interface AnalyzeRequest {
   ticker: string;
   bars: OHLCVBar[];
   indicators?: string[];
+  /** When set, the chart analysis is anchored to a screener pick for consistency */
+  screenerContext?: ScreenerContext;
 }
 
 export interface ApiError {
@@ -303,6 +314,9 @@ export interface CandidateSummary {
   opportunityScore: number;
   rsi14: number;
   volumeRatio: number;
+  entry: number;
+  stopLoss: number;
+  target: number;
   riskReward: number;
   breakoutDistance: number;
   potentialReturn: number;

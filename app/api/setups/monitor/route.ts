@@ -10,8 +10,20 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// A setup expires after 42 calendar days (~30 trading days)
-const EXPIRE_DAYS = 42;
+// Pattern-aware expiry (calendar days). Shorter patterns resolve faster.
+const PATTERN_EXPIRE_DAYS: Record<string, number> = {
+  bull_flag:                  21,  // flags resolve in 1–3 weeks
+  bear_flag:                  21,
+  consolidation_breakout:     21,
+  sma_bounce:                 21,
+  momentum_continuation:      28,
+  double_bottom:              35,
+  falling_wedge:              42,
+  rising_wedge:               42,
+  inverse_head_and_shoulders: 56,
+  cup_and_handle:             60,
+};
+const DEFAULT_EXPIRE_DAYS = 42;
 
 export async function POST() {
   const session = await auth();
@@ -20,12 +32,13 @@ export async function POST() {
 
   try {
     const rows = await sql`
-      SELECT id, ticker, entry_price, stop_price, target_price, status, created_at
+      SELECT id, ticker, pattern, entry_price, stop_price, target_price, status, created_at
       FROM setups
       WHERE user_id = ${userId} AND status IN ('PENDING', 'ACTIVE')
     ` as {
       id: string;
       ticker: string;
+      pattern: string;
       entry_price: number;
       stop_price: number;
       target_price: number;
@@ -54,7 +67,6 @@ export async function POST() {
     );
 
     const now = new Date();
-    const expireCutoff = new Date(now.getTime() - EXPIRE_DAYS * 24 * 60 * 60 * 1000);
 
     let updated = 0;
     const statuses: Record<string, SetupStatus> = {};
@@ -62,6 +74,10 @@ export async function POST() {
     for (const row of rows) {
       const currentPrice = priceMap.get(row.ticker);
       const createdAt = new Date(row.created_at);
+
+      // Pattern-aware expiry cutoff
+      const expireDays = PATTERN_EXPIRE_DAYS[row.pattern] ?? DEFAULT_EXPIRE_DAYS;
+      const expireCutoff = new Date(now.getTime() - expireDays * 24 * 60 * 60 * 1000);
 
       let newStatus: SetupStatus | null = null;
       let result: "WIN" | "LOSS" | null = null;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import AppHeader from "@/components/ui/AppHeader";
@@ -195,6 +195,14 @@ export default function TrackRecordPage() {
       setRefreshing(false);
     }
   }, [queryClient]);
+
+  // Auto-refresh prices on mount so statuses are always current
+  const didAutoRefresh = useRef(false);
+  useEffect(() => {
+    if (didAutoRefresh.current) return;
+    didAutoRefresh.current = true;
+    handleRefresh();
+  }, [handleRefresh]);
 
   const live    = setups.filter((s) => s.status === "PENDING" || s.status === "ACTIVE");
   const history = setups.filter((s) => s.status === "TARGET_HIT" || s.status === "STOP_HIT" || s.status === "EXPIRED");

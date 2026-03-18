@@ -219,9 +219,14 @@ export default function AnalysisPanel({
           </button>
           <button
             onClick={() => onToggleKeyLevels(!showKeyLevels)}
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className={cn(
+              "flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-bold uppercase tracking-wide transition-all",
+              showKeyLevels
+                ? "bg-accent/20 border-accent/50 text-accent hover:bg-accent/30"
+                : "bg-surface-elevated border-border/60 text-muted-foreground hover:text-foreground"
+            )}
           >
-            {showKeyLevels ? "Hide on chart" : "Show on chart"}
+            {showKeyLevels ? "Visible" : "Hidden"}
           </button>
         </div>
 
@@ -272,7 +277,12 @@ export default function AnalysisPanel({
           </h3>
           <button
             onClick={() => onToggleAll(!allVisible)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all",
+              allVisible
+                ? "bg-surface-elevated border-border text-muted-foreground hover:text-foreground hover:border-accent/40"
+                : "bg-accent/15 border-accent/40 text-accent hover:bg-accent/25"
+            )}
           >
             <RefreshCw className="w-3 h-3" />
             {allVisible ? "Hide all" : "Show all"}

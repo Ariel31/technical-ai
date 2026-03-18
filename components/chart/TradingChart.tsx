@@ -412,6 +412,9 @@ export default function TradingChart({
         overlaySeriesRef.current.push(series);
       });
 
+      // Build a time→bar lookup for snapping trendline points to wicks
+      const barByTime = new Map(bars.map((b) => [b.time, b]));
+
       // Trendlines / polygon outlines (wedges, flags, channels)
       const EXTENDABLE_TYPES = new Set([
         "ascending_channel",
@@ -437,13 +440,51 @@ export default function TradingChart({
           title: polygon.label ?? "",
           crosshairMarkerVisible: false,
         });
+        // Snap trendline anchor prices to actual candle wicks so the line
+        // touches the bottom of up-trend bars (lows) or top of down-trend bars (highs).
+        const snapToWick = (t: number, price: number): number => {
+          const bar = barByTime.get(t);
+          if (!bar) return price;
+          if (pattern.type === "uptrend_line") return bar.low;
+          if (pattern.type === "downtrend_line") return bar.high;
+          return price;
+        };
+
         let data: LineData[] = polygon.points
-          .map((p) => ({ time: p.time as Time, value: p.price }))
+          .map((p) => ({ time: p.time as Time, value: snapToWick(p.time, p.price) }))
           .sort((a, b) => (a.time as number) - (b.time as number))
           .filter(
             (p, i, arr) =>
               i === 0 || (p.time as number) !== (arr[i - 1].time as number),
           );
+
+        // For trendlines: adjust slope so no intermediate candle pokes through.
+        // Downtrend line → line must stay at or above every candle high.
+        // Uptrend line   → line must stay at or below every candle low.
+        if (TRENDLINE_TYPES.has(pattern.type) && data.length >= 2) {
+          const isDowntrend = pattern.type === "downtrend_line";
+          const t0 = data[0].time as number;
+          const p0 = data[0].value;
+          const tN = data[data.length - 1].time as number;
+          let slope = (data[data.length - 1].value - p0) / (tN - t0);
+
+          for (const bar of bars) {
+            const bt = bar.time;
+            if (bt <= t0 || bt >= tN) continue;
+            const slopeNeeded = isDowntrend
+              ? (bar.high - p0) / (bt - t0)
+              : (bar.low  - p0) / (bt - t0);
+            slope = isDowntrend
+              ? Math.max(slope, slopeNeeded)
+              : Math.min(slope, slopeNeeded);
+          }
+
+          data = data.map((pt, i) =>
+            i === 0
+              ? pt
+              : { ...pt, value: +(p0 + slope * ((pt.time as number) - t0)).toFixed(2) }
+          );
+        }
 
         // Extend channel/wedge/flag lines to the last bar so breakouts are visible
         if (EXTENDABLE_TYPES.has(pattern.type) && data.length >= 2) {

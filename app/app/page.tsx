@@ -48,8 +48,10 @@ function AppContent() {
     const t = searchParams.get("ticker");
     if (!t) return;
     const upper = t.toUpperCase();
+
     setTicker(upper);
     setStatus("fetching_data");
+    // Check Pro-model cache first; only run fresh if no cached analysis exists
     loadCachedAnalysis(upper).then((cached) => {
       if (cached) {
         setBars(cached.bars);
@@ -285,7 +287,7 @@ function AppContent() {
                     </div>
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono px-3 py-1.5 rounded-lg border border-border/60 bg-surface/80">
                       <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-                      Gemini 2.0 Flash
+                      Gemini 2.5 Pro
                     </div>
                   </div>
                 </div>

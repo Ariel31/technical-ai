@@ -49,7 +49,9 @@ export default function PatternCard({
     <div
       className={cn(
         "rounded-xl border bg-surface transition-all duration-200",
-        isVisible ? `border-border ring-1 ${styles.ring}` : "border-border/50 opacity-60"
+        isVisible
+          ? `border-border/80 ring-1 ${styles.ring} shadow-sm`
+          : "border-border/30 opacity-40 grayscale-[30%]"
       )}
     >
       {/* Header */}
@@ -94,13 +96,21 @@ export default function PatternCard({
         )}
 
         {/* Actions */}
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           <button
             onClick={() => onToggleVisibility(pattern.id)}
-            className="p-1.5 rounded-lg hover:bg-surface-elevated text-muted-foreground hover:text-foreground transition-colors"
             title={isVisible ? "Hide on chart" : "Show on chart"}
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-bold uppercase tracking-wide transition-all",
+              isVisible
+                ? "bg-accent/20 border-accent/50 text-accent hover:bg-accent/30"
+                : "bg-surface-elevated border-border/60 text-muted-foreground hover:text-foreground hover:border-border"
+            )}
           >
-            {isVisible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+            {isVisible
+              ? <><Eye className="w-3 h-3" /> On</>
+              : <><EyeOff className="w-3 h-3" /> Off</>
+            }
           </button>
           <button
             onClick={() => setExpanded((v) => !v)}

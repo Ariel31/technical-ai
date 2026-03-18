@@ -63,13 +63,17 @@ export function useWatchlist() {
 
   const analyzeInBackground = useCallback(
     async (ticker: string, forceRefresh: boolean) => {
-      // Check analysis cache first (unless forced refresh)
+      // Check analysis cache first (unless forced refresh); skip if older than 24h
       if (!forceRefresh) {
         const cacheRes = await fetch(`/api/analysis/${encodeURIComponent(ticker)}`);
         if (cacheRes.ok) {
-          updateItem(ticker, { status: "done" });
-          persistStatus(ticker, "done");
-          return;
+          const cached = await cacheRes.json();
+          const age = Date.now() - new Date(cached.analyzedAt).getTime();
+          if (age <= 24 * 60 * 60 * 1000) {
+            updateItem(ticker, { status: "done" });
+            persistStatus(ticker, "done");
+            return;
+          }
         }
       }
 
@@ -206,7 +210,11 @@ export function useWatchlist() {
     async (ticker: string): Promise<CachedAnalysis | null> => {
       const res = await fetch(`/api/analysis/${encodeURIComponent(ticker)}`);
       if (!res.ok) return null;
-      return res.json();
+      const data: CachedAnalysis = await res.json();
+      // Treat cache as stale if analyzed more than 24 hours ago
+      const age = Date.now() - new Date(data.analyzedAt).getTime();
+      if (age > 24 * 60 * 60 * 1000) return null;
+      return data;
     },
     []
   );

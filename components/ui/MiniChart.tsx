@@ -5,9 +5,6 @@ import type { MiniBar } from "@/lib/types";
 
 interface Props {
   bars: MiniBar[];
-  entry: number;
-  stop: number;
-  target: number;
   breakoutLevel?: number;
   patternKey?: string;
   isLong: boolean;
@@ -47,11 +44,6 @@ const LEGEND: Record<string, { color: string; dash?: boolean; label: string }[]>
   ],
 };
 
-const BASE_LEGEND = [
-  { color: "#22c55e",              label: "Target" },
-  { color: "rgba(255,255,255,0.5)", label: "Entry"  },
-  { color: "#ef4444",              label: "Stop"   },
-];
 
 // ─── Pattern overlays ─────────────────────────────────────────────────────────
 
@@ -177,7 +169,7 @@ function addPatternOverlays(series: any, bars: MiniBar[], patternKey: string, Li
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function MiniChart({ bars, entry, stop, target, breakoutLevel, patternKey }: Props) {
+export default function MiniChart({ bars, breakoutLevel, patternKey }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -213,11 +205,8 @@ export default function MiniChart({ bars, entry, stop, target, breakoutLevel, pa
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       series.setData(bars.map((b) => ({ time: b.t as any, open: b.o, high: b.h, low: b.l, close: b.c })));
 
-      // ── Price level lines ──────────────────────────────────────────────────
-      series.createPriceLine({ price: target, color: "#22c55e",               lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false, title: "" });
-      series.createPriceLine({ price: entry,  color: "rgba(255,255,255,0.45)", lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false, title: "" });
-      series.createPriceLine({ price: stop,   color: "#ef4444",               lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false, title: "" });
-      if (breakoutLevel && Math.abs(breakoutLevel - target) / target > 0.005) {
+      // ── Breakout level line ────────────────────────────────────────────────
+      if (breakoutLevel) {
         series.createPriceLine({ price: breakoutLevel, color: "rgba(250,204,21,0.6)", lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, title: "" });
       }
 
@@ -233,7 +222,7 @@ export default function MiniChart({ bars, entry, stop, target, breakoutLevel, pa
 
     return () => cleanup?.();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bars, entry, stop, target, breakoutLevel, patternKey]);
+  }, [bars, breakoutLevel, patternKey]);
 
   const patternLegend = patternKey ? (LEGEND[patternKey] ?? []) : [];
 
@@ -242,22 +231,16 @@ export default function MiniChart({ bars, entry, stop, target, breakoutLevel, pa
       <div ref={containerRef} className="w-full overflow-hidden" style={{ height: 140 }} />
 
       {/* ── Legend ──────────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 border-t border-border/30">
-        {BASE_LEGEND.map(({ color, label }) => (
-          <div key={label} className="flex items-center gap-1">
-            <svg width="16" height="6">
-              <line x1="0" y1="3" x2="16" y2="3" stroke={color} strokeWidth="1.5" strokeDasharray="3 2" />
-            </svg>
-            <span className="text-[9px] text-muted-foreground">{label}</span>
-          </div>
-        ))}
-        {patternLegend.map(({ color, label }) => (
-          <div key={label} className="flex items-center gap-1">
-            <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
-            <span className="text-[9px] text-muted-foreground">{label}</span>
-          </div>
-        ))}
-      </div>
+      {patternLegend.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 border-t border-border/30">
+          {patternLegend.map(({ color, label }) => (
+            <div key={label} className="flex items-center gap-1">
+              <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+              <span className="text-[9px] text-muted-foreground">{label}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

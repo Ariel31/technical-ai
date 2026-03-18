@@ -11,6 +11,7 @@ import type {
   TechnicalPattern,
   OHLCVBar,
   ChartCurve,
+  ScreenerContext,
 } from "./types";
 import { PATTERN_COLORS } from "./utils";
 
@@ -230,7 +231,8 @@ const generationConfig: GenerationConfig = {
 function buildPrompt(
   ticker: string,
   bars: OHLCVBar[],
-  indicators: string[]
+  indicators: string[],
+  screenerContext?: ScreenerContext
 ): string {
   // Limit to 100 bars to stay well within free-tier token limits
   const recentBars = bars.slice(-100);
@@ -260,7 +262,11 @@ function buildPrompt(
       ? `\nUser-selected indicators to factor in: ${indicators.join(", ")}\n`
       : "";
 
-  return `Expert technical analyst. Analyze ${ticker} OHLCV data and identify chart patterns.${indicatorsSection}
+  const screenerSection = screenerContext
+    ? `\nSCREENER CONTEXT: The algorithmic screener identified this as a ${screenerContext.direction.toUpperCase()} setup — pattern: ${screenerContext.pattern}, confidence ${screenerContext.confidence}%, entry $${screenerContext.entry}, stop $${screenerContext.stopLoss}, target $${screenerContext.target}. Your deep analysis should confirm or refine this. If the pattern is still valid, your entrySignal direction MUST match (${screenerContext.direction}). Only override the direction if you find clear evidence that the setup has materially changed since the scan.\n`
+    : "";
+
+  return `Expert technical analyst. Analyze ${ticker} OHLCV data and identify chart patterns.${indicatorsSection}${screenerSection}
 
 Columns: t=Unix timestamp(s), o=open, h=high, l=low, c=close, v=volume(k)
 Range: ${new Date(firstBar.time * 1000).toDateString()} → ${new Date(
@@ -879,7 +885,7 @@ function filterInvalidChannels(patterns: TechnicalPattern[], bars: OHLCVBar[]): 
 export async function analyzeChart(
   request: AnalyzeRequest
 ): Promise<AnalysisResult> {
-  const { ticker, bars, indicators = [] } = request;
+  const { ticker, bars, indicators = [], screenerContext } = request;
 
   // ── Mock mode: set MOCK_AI=true in .env.local to skip Gemini ──────────────
   if (process.env.MOCK_AI === "true") {
@@ -903,7 +909,7 @@ export async function analyzeChart(
     generationConfig,
   });
 
-  const prompt = buildPrompt(ticker, bars, indicators);
+  const prompt = buildPrompt(ticker, bars, indicators, screenerContext);
   const result = await model.generateContent(prompt);
   const text = result.response.text();
 
