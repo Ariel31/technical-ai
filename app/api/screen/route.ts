@@ -235,30 +235,6 @@ export async function POST(_req: Request) {
           .then(() => sql`INSERT INTO top_picks (user_id, result, picked_at) VALUES (${userId}, ${sql.json(screenerResult as any)}, now())`)
           .catch(() => { /* non-fatal */ });
 
-        // Auto-save picks as tracked setups (skip tickers already PENDING/ACTIVE for this user)
-        try {
-          const existingRows = await sql`
-            SELECT ticker FROM setups WHERE user_id = ${userId} AND status IN ('PENDING', 'ACTIVE')
-          `;
-          const tracked = new Set((existingRows as unknown as { ticker: string }[]).map((r) => r.ticker));
-
-          for (const pick of picks) {
-            if (!tracked.has(pick.ticker)) {
-              await sql`
-                INSERT INTO setups
-                  (user_id, ticker, company_name, pattern, confidence, entry_price, stop_price, target_price,
-                   scan_source, setup_score, opportunity_score, reasoning)
-                VALUES
-                  (${userId}, ${pick.ticker}, ${pick.companyName}, ${pick.primaryPattern},
-                   ${pick.confidence}, ${pick.entry}, ${pick.stopLoss}, ${pick.target},
-                   'homepage', ${pick.setupScore ?? null}, ${pick.opportunityScore ?? null},
-                   ${pick.reasoning ?? null})
-              `;
-            }
-          }
-        } catch (err) {
-          console.warn("[Screener] Setup tracking insert failed:", err);
-        }
 
       } catch (err) {
         send({

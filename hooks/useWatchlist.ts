@@ -96,6 +96,27 @@ export function useWatchlist() {
         } : undefined;
         updateItem(ticker, { status: "done", entrySignal: es });
         persistStatus(ticker, "done");
+
+        // Auto-track as a setup if the AI found a valid entry signal
+        if (es) {
+          const primaryPattern = result.patterns.find(
+            (p) => p.type !== "support" && p.type !== "resistance"
+          );
+          fetch("/api/setups", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ticker,
+              companyName:  meta.name,
+              pattern:      primaryPattern?.type ?? "momentum_continuation",
+              confidence:   primaryPattern?.confidenceScore ?? 0,
+              entryPrice:   es.entryPrice,
+              stopPrice:    es.stopLoss,
+              targetPrice:  es.target,
+              rationale:    result.entrySignal?.rationale ?? null,
+            }),
+          }).catch(() => { /* non-fatal */ });
+        }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : "Analysis failed";
         updateItem(ticker, { status: "error", errorMessage });

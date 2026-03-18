@@ -1,10 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState, useCallback, useEffect, useRef, Suspense } from "react";
+import React, { useState, useCallback, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { Brain, Loader2, Bookmark, BookmarkCheck } from "lucide-react";
+import { Brain, Loader2, Bookmark, BookmarkCheck, Share2 } from "lucide-react";
 import type { AnalysisResult, AppStatus, OHLCVBar, StockDataResponse } from "@/lib/types";
+import type { TradingChartHandle } from "@/components/chart/TradingChart";
 import TickerInput from "@/components/ui/TickerInput";
 import AnalysisPanel from "@/components/ui/AnalysisPanel";
 import StatusOverlay from "@/components/ui/StatusOverlay";
@@ -14,10 +15,11 @@ import { useWatchlist } from "@/hooks/useWatchlist";
 import { cn } from "@/lib/utils";
 
 // TradingChart uses browser APIs — load client-side only
+// Cast to preserve forwardRef typings through next/dynamic
 const TradingChart = dynamic(() => import("@/components/chart/TradingChart"), {
   ssr: false,
   loading: () => <div className="w-full h-full bg-[#0a0a0f] rounded-xl animate-pulse" />,
-});
+}) as React.ComponentType<React.ComponentPropsWithRef<typeof import("@/components/chart/TradingChart").default>>;
 
 function AppContent() {
   const searchParams = useSearchParams();
@@ -30,6 +32,9 @@ function AppContent() {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [activePatternIds, setActivePatternIds] = useState<Set<string>>(new Set());
   const [showKeyLevels, setShowKeyLevels] = useState(true);
+  const [shareToast, setShareToast] = useState<"idle" | "uploading" | "copied" | "error">("idle");
+
+  const chartRef = useRef<TradingChartHandle>(null);
 
   const { watchlist, addToWatchlist, removeFromWatchlist, reanalyze, loadCachedAnalysis } =
     useWatchlist();
@@ -198,6 +203,31 @@ function AppContent() {
     setShowKeyLevels(visible);
   }
 
+  const handleShare = useCallback(async () => {
+    if (!chartRef.current || shareToast === "uploading") return;
+    setShareToast("uploading");
+    try {
+      const dataUrl = await chartRef.current.captureImage();
+
+      // Upload to Vercel Blob → get public URL
+      const uploadRes = await fetch("/api/share-chart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageData: dataUrl, ticker }),
+      });
+      if (!uploadRes.ok) throw new Error("Upload failed");
+      const { url } = await uploadRes.json();
+
+      // Copy URL to clipboard
+      await navigator.clipboard.writeText(url);
+      setShareToast("copied");
+    } catch {
+      setShareToast("error");
+    } finally {
+      setTimeout(() => setShareToast("idle"), 3000);
+    }
+  }, [ticker, shareToast]);
+
   const showFullOverlay =
     status === "idle" ||
     status === "fetching_data" ||
@@ -257,11 +287,41 @@ function AppContent() {
           />
 
           {/* Chart Area */}
-          <div className="flex-1 relative p-3 min-w-0 min-h-0 flex flex-col">
+          <div className="flex-1 relative p-3 min-w-0 min-h-0 flex flex-col gap-2">
+            {/* Toolbar */}
+            {status === "done" && bars.length > 0 && (
+              <div className="flex items-center justify-end shrink-0">
+                <button
+                  onClick={handleShare}
+                  disabled={shareToast === "uploading"}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-lg border font-medium text-sm transition-all duration-200 disabled:opacity-50",
+                    shareToast === "copied"
+                      ? "bg-bull/10 border-bull/40 text-bull"
+                      : shareToast === "error"
+                        ? "bg-bear/10 border-bear/40 text-bear"
+                        : "bg-surface border-border text-muted-foreground hover:text-foreground hover:border-accent/50 hover:bg-surface/80"
+                  )}
+                >
+                  {shareToast === "uploading" ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : shareToast === "copied" ? (
+                    <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none">
+                      <path d="M3 8l4 4 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  ) : (
+                    <Share2 className="w-4 h-4" />
+                  )}
+                  {shareToast === "uploading" ? "Uploading…" : shareToast === "copied" ? "Link copied!" : shareToast === "error" ? "Failed" : "Share chart"}
+                </button>
+              </div>
+            )}
+
             <div className="relative flex-1 min-h-0 rounded-xl border border-border overflow-hidden">
 
               {bars.length > 0 && (
                 <TradingChart
+                  ref={chartRef}
                   bars={bars}
                   analysis={analysis}
                   activePatternIds={activePatternIds}
@@ -310,6 +370,7 @@ function AppContent() {
                   )}
                 </div>
               )}
+
             </div>
           </div>
 

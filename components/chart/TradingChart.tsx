@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from "react";
 import {
   createChart,
   type IChartApi,
@@ -13,6 +13,10 @@ import {
   PriceScaleMode,
 } from "lightweight-charts";
 import type { OHLCVBar, AnalysisResult, TechnicalPattern } from "@/lib/types";
+
+export interface TradingChartHandle {
+  captureImage: () => Promise<string>;
+}
 
 interface TradingChartProps {
   bars: OHLCVBar[];
@@ -35,13 +39,13 @@ const CHART_THEME = {
   },
 };
 
-export default function TradingChart({
+const TradingChart = forwardRef<TradingChartHandle, TradingChartProps>(function TradingChart({
   bars,
   analysis,
   activePatternIds,
   keyLevels,
   showKeyLevels,
-}: TradingChartProps) {
+}, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -650,6 +654,48 @@ export default function TradingChart({
     drawCurvesOnCanvas,
   ]);
 
+  // ─── Expose captureImage via ref ──────────────────────────────────────────
+
+  useImperativeHandle(ref, () => ({
+    captureImage(): Promise<string> {
+      return new Promise((resolve, reject) => {
+        const chart = chartRef.current;
+        const overlay = canvasRef.current;
+        if (!chart || !overlay) return reject(new Error("Chart not ready"));
+
+        // lightweight-charts built-in screenshot — captures all series layers correctly
+        const chartCanvas = chart.takeScreenshot();
+
+        const w = chartCanvas.width;
+        const h = chartCanvas.height;
+
+        const out = document.createElement("canvas");
+        out.width  = w;
+        out.height = h;
+        const ctx = out.getContext("2d")!;
+
+        // 1. Chart (candles, volume, line overlays)
+        ctx.drawImage(chartCanvas, 0, 0);
+
+        // 2. Catmull-Rom curve overlay — scale to match chart canvas physical size
+        ctx.drawImage(overlay, 0, 0, w, h);
+
+        // 3. Watermark — bottom-left
+        const dpr = window.devicePixelRatio || 1;
+        const fontSize = Math.round(22 * dpr);
+        ctx.font         = `bold ${fontSize}px 'JetBrains Mono', monospace`;
+        ctx.textAlign    = "left";
+        ctx.textBaseline = "bottom";
+        ctx.globalAlpha  = 0.6;
+        ctx.fillStyle    = "#94a3b8";
+        ctx.fillText("TechnicalAI.app", 16 * dpr, h - 44 * dpr);
+        ctx.globalAlpha  = 1;
+
+        resolve(out.toDataURL("image/png"));
+      });
+    },
+  }), []);
+
   return (
     <div className="relative w-full h-full">
       <div
@@ -657,7 +703,7 @@ export default function TradingChart({
         className="w-full h-full"
         style={{ background: CHART_THEME.background }}
       />
-      {/* Canvas overlay fo1r smooth pattern curves — pointer-events: none so chart interaction works */}
+      {/* Canvas overlay for smooth pattern curves — pointer-events: none so chart interaction works */}
       <canvas
         ref={canvasRef}
         className="absolute inset-0 pointer-events-none"
@@ -665,4 +711,6 @@ export default function TradingChart({
       />
     </div>
   );
-}
+});
+
+export default TradingChart;

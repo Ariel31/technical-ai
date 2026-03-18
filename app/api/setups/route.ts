@@ -52,6 +52,47 @@ function rowToSetup(r: Record<string, unknown>): TrackedSetup {
   };
 }
 
+export async function POST(req: Request) {
+  const session = await auth();
+  if (!session?.user?.id) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const userId = session.user.id;
+
+  try {
+    const body = await req.json() as {
+      ticker: string;
+      companyName?: string;
+      pattern: string;
+      confidence?: number;
+      entryPrice: number;
+      stopPrice: number;
+      targetPrice: number;
+      rationale?: string;
+    };
+
+    // Skip if ticker already PENDING or ACTIVE for this user
+    const existing = await sql`
+      SELECT id FROM setups
+      WHERE user_id = ${userId} AND ticker = ${body.ticker} AND status IN ('PENDING', 'ACTIVE')
+      LIMIT 1
+    `;
+    if (existing.length > 0) return Response.json({ ok: true, skipped: true });
+
+    await sql`
+      INSERT INTO setups
+        (user_id, ticker, company_name, pattern, confidence,
+         entry_price, stop_price, target_price, scan_source, reasoning)
+      VALUES
+        (${userId}, ${body.ticker}, ${body.companyName ?? null}, ${body.pattern},
+         ${body.confidence ?? 0}, ${body.entryPrice}, ${body.stopPrice}, ${body.targetPrice},
+         'watchlist', ${body.rationale ?? null})
+    `;
+    return Response.json({ ok: true });
+  } catch (err) {
+    console.error("[setups] POST failed:", err);
+    return Response.json({ error: "Failed to create setup" }, { status: 500 });
+  }
+}
+
 export async function GET(req: Request) {
   const session = await auth();
   if (!session?.user?.id) return Response.json([], { status: 401 });
