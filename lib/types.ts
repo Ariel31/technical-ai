@@ -314,9 +314,6 @@ export interface CandidateSummary {
   opportunityScore: number;
   rsi14: number;
   volumeRatio: number;
-  entry: number;
-  stopLoss: number;
-  target: number;
   riskReward: number;
   breakoutDistance: number;
   potentialReturn: number;
