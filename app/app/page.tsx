@@ -35,6 +35,7 @@ function AppContent() {
   const [shareToast, setShareToast] = useState<"idle" | "uploading" | "copied" | "error">("idle");
 
   const chartRef = useRef<TradingChartHandle>(null);
+  const activeTickerRef = useRef<string>("");
 
   const { watchlist, addToWatchlist, removeFromWatchlist, reanalyze, loadCachedAnalysis } =
     useWatchlist();
@@ -90,6 +91,8 @@ function AppContent() {
   // ── Main analysis flow ────────────────────────────────────────────────────────
 
   const handleAnalyze = useCallback(async (inputTicker: string) => {
+    activeTickerRef.current = inputTicker;
+
     setTicker(inputTicker);
     setError(undefined);
     setAnalysis(null);
@@ -109,11 +112,13 @@ function AppContent() {
       }
       stockData = await res.json();
     } catch (err) {
+      if (activeTickerRef.current !== inputTicker) return;
       setStatus("error");
       setError(err instanceof Error ? err.message : "Failed to fetch stock data");
       return;
     }
 
+    if (activeTickerRef.current !== inputTicker) return;
     setBars(stockData.bars);
     setMeta(stockData.meta);
 
@@ -148,16 +153,19 @@ function AppContent() {
       if (errorMsg) throw new Error(errorMsg);
       if (!result)  throw new Error("The AI returned an unexpected response. Please try again.");
 
-      applyAnalysisResult(result);
-
-      // Save to DB in background so watchlist can load it instantly later
+      // Always cache — even if user has moved to another ticker
       fetch(`/api/analysis/${encodeURIComponent(inputTicker)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bars: stockData.bars, result, meta: stockData.meta }),
       }).catch(() => { /* non-fatal */ });
 
+      // Only update UI if this is still the active ticker
+      if (activeTickerRef.current !== inputTicker) return;
+      applyAnalysisResult(result);
+
     } catch (err) {
+      if (activeTickerRef.current !== inputTicker) return;
       setStatus("done");
       setError(err instanceof Error ? err.message : "AI analysis failed");
     }
