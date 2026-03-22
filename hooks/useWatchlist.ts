@@ -24,11 +24,26 @@ async function runFullAnalysis(ticker: string): Promise<{
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ticker, bars: stockData.bars, indicators: [] }),
   });
-  if (!analyzeRes.ok) {
-    const body = await analyzeRes.json().catch(() => ({}));
-    throw new Error((body as { error?: string }).error ?? "AI analysis failed");
+  if (!analyzeRes.ok || !analyzeRes.body) throw new Error("AI analysis failed");
+
+  const reader = analyzeRes.body.getReader();
+  const decoder = new TextDecoder();
+  let result = null;
+  let errorMsg: string | null = null;
+
+  outer: while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    for (const line of decoder.decode(value).split("\n")) {
+      if (!line.startsWith("data: ")) continue;
+      const event = JSON.parse(line.slice(6));
+      if (event.type === "done")  { result = event.result; break outer; }
+      if (event.type === "error") { errorMsg = event.message; break outer; }
+    }
   }
-  const result = await analyzeRes.json();
+
+  if (errorMsg) throw new Error(errorMsg);
+  if (!result)  throw new Error("AI analysis failed");
 
   return { bars: stockData.bars, result, meta: stockData.meta };
 }
@@ -72,6 +87,27 @@ export function useWatchlist() {
           if (age <= 24 * 60 * 60 * 1000) {
             updateItem(ticker, { status: "done" });
             persistStatus(ticker, "done");
+            // Create a setup from cache if a clear entry signal exists
+            const sig = cached.result?.entrySignal;
+            if (sig?.hasEntry) {
+              const primaryPattern = cached.result?.patterns?.find(
+                (p: { type: string }) => p.type !== "support" && p.type !== "resistance"
+              );
+              fetch("/api/setups", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  ticker,
+                  companyName:  cached.meta?.name,
+                  pattern:      primaryPattern?.type ?? "momentum_continuation",
+                  confidence:   primaryPattern?.confidenceScore ?? 0,
+                  entryPrice:   sig.entryPrice,
+                  stopPrice:    sig.stopLoss,
+                  targetPrice:  sig.target,
+                  rationale:    sig.rationale ?? null,
+                }),
+              }).catch(() => {});
+            }
             return;
           }
         }
@@ -174,6 +210,26 @@ export function useWatchlist() {
                       : item
                   )
                 );
+                // Create setup only if Gemini found a clear entry
+                if (sig?.hasEntry) {
+                  const primaryPattern = data.result?.patterns?.find(
+                    (p: { type: string }) => p.type !== "support" && p.type !== "resistance"
+                  );
+                  fetch("/api/setups", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      ticker:       row.ticker,
+                      companyName:  data.meta?.name,
+                      pattern:      primaryPattern?.type ?? "momentum_continuation",
+                      confidence:   primaryPattern?.confidenceScore ?? 0,
+                      entryPrice:   sig.entryPrice,
+                      stopPrice:    sig.stopLoss,
+                      targetPrice:  sig.target,
+                      rationale:    sig.rationale ?? null,
+                    }),
+                  }).catch(() => {});
+                }
               }
             } catch { /* non-fatal */ }
           });

@@ -117,7 +117,7 @@ function AppContent() {
     setBars(stockData.bars);
     setMeta(stockData.meta);
 
-    // Step 2: AI Analysis
+    // Step 2: AI Analysis (SSE)
     setStatus("analyzing");
 
     try {
@@ -127,21 +127,26 @@ function AppContent() {
         body: JSON.stringify({ ticker: inputTicker, bars: stockData.bars, indicators: [] }),
       });
 
-      if (!res.ok) {
-        let errorMsg = "AI analysis couldn't be completed. Please try again.";
-        try {
-          const body = await res.json();
-          if (body.error) errorMsg = body.error;
-        } catch { /* non-JSON error body — keep default message */ }
-        throw new Error(errorMsg);
+      if (!res.ok || !res.body) throw new Error("AI analysis couldn't be completed. Please try again.");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let result: AnalysisResult | null = null;
+      let errorMsg: string | null = null;
+
+      outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        for (const line of decoder.decode(value).split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          const event = JSON.parse(line.slice(6));
+          if (event.type === "done")  { result = event.result; break outer; }
+          if (event.type === "error") { errorMsg = event.message; break outer; }
+        }
       }
 
-      let result: AnalysisResult;
-      try {
-        result = await res.json();
-      } catch {
-        throw new Error("The AI returned an unexpected response. Please try again.");
-      }
+      if (errorMsg) throw new Error(errorMsg);
+      if (!result)  throw new Error("The AI returned an unexpected response. Please try again.");
 
       applyAnalysisResult(result);
 

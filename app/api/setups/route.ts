@@ -107,13 +107,13 @@ export async function GET(req: Request) {
       const statuses = statusParam.split(",").map((s) => s.trim());
       rows = await sql`
         SELECT * FROM setups
-        WHERE user_id = ${userId} AND status = ANY(${statuses})
+        WHERE user_id = ${userId} AND scan_source = 'watchlist' AND status = ANY(${statuses})
         ORDER BY created_at DESC
       ` as Record<string, unknown>[];
     } else {
       rows = await sql`
         SELECT * FROM setups
-        WHERE user_id = ${userId}
+        WHERE user_id = ${userId} AND scan_source = 'watchlist'
         ORDER BY created_at DESC
       ` as Record<string, unknown>[];
     }

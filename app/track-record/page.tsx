@@ -171,6 +171,17 @@ export default function TrackRecordPage() {
   const [tab, setTab] = useState<"live" | "history">("live");
   const [refreshing, setRefreshing] = useState(false);
 
+  // Sync watchlist entry signals → setups table on every page load
+  useEffect(() => {
+    fetch("/api/setups/sync", { method: "POST" })
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ["setups"] });
+        queryClient.invalidateQueries({ queryKey: ["setups-stats"] });
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const { data: stats, isLoading: statsLoading } = useQuery<TrackRecordStats>({
     queryKey: ["setups-stats"],
     queryFn: () => fetch("/api/setups/stats").then((r) => r.json()),
