@@ -5,7 +5,7 @@ import { Activity, TrendingUp, BarChart2, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import UserMenu from "@/components/ui/UserMenu";
 
-export type ActivePage = "home" | "chart" | "track-record";
+export type ActivePage = "home" | "chart" | "track-record" | null;
 
 interface AppHeaderProps {
   /** Which nav item is currently active */

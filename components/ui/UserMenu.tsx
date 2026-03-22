@@ -3,7 +3,8 @@
 import { useSession, signOut } from "next-auth/react";
 import Image from "next/image";
 import { useState, useRef, useEffect } from "react";
-import { LogOut, ChevronDown } from "lucide-react";
+import { LogOut, ChevronDown, ShieldCheck } from "lucide-react";
+import Link from "next/link";
 
 export default function UserMenu() {
   const { data: session } = useSession();
@@ -24,6 +25,7 @@ export default function UserMenu() {
   if (!session?.user) return null;
 
   const { name, email, image } = session.user;
+  const isAdmin = email === process.env.NEXT_PUBLIC_ADMIN_EMAIL;
 
   return (
     <div ref={menuRef} className="relative shrink-0">
@@ -56,6 +58,16 @@ export default function UserMenu() {
             <p className="text-xs font-semibold text-foreground truncate">{name}</p>
             <p className="text-[10px] text-muted-foreground truncate">{email}</p>
           </div>
+          {isAdmin && (
+            <Link
+              href="/admin"
+              onClick={() => setOpen(false)}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-accent hover:text-accent hover:bg-accent/10 transition-colors"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              Admin Panel
+            </Link>
+          )}
           <button
             onClick={() => signOut({ callbackUrl: "/login" })}
             className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-muted-foreground hover:text-foreground hover:bg-surface-elevated transition-colors"
