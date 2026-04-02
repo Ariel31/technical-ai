@@ -288,7 +288,11 @@ PROCEDURE for each trend line — follow these steps exactly:
   Step 2. Draw a provisional line from point 1 through the next qualifying swing point.
   Step 3. Scan EVERY remaining bar to the right: check if each subsequent swing point lies within 0.5% of the extrapolated line. Every bar that qualifies extends the "last confirmed touch" forward.
   Step 4. Continue scanning until you reach the end of the data OR until price clearly breaks through the line (close beyond the line by >1%). The LAST qualifying swing point before that break is point 2.
-  Step 5. Set the polygon points to [point1_timestamp, point1_price] and [point2_timestamp, point2_price]. Never use an intermediate touch as point 2 when a later touch exists.
+  Step 5. Set the polygon to EXACTLY 2 points: [{ time: point1_timestamp, price: point1_exact_price }, { time: point2_timestamp, price: point2_exact_price }]
+    - For uptrend_line: price MUST be the exact "l" (low) value of that bar from the CSV above
+    - For downtrend_line: price MUST be the exact "h" (high) value of that bar from the CSV above
+    - Copy the price verbatim from the data — do NOT round, estimate, or interpolate
+    - The renderer draws a straight line between these 2 points with no modification
 
 - uptrend_line: diagonal support line. Use the procedure above with swing lows.
 - downtrend_line: diagonal resistance line. Use the procedure above with swing highs.
