@@ -89,25 +89,23 @@ export function useWatchlist() {
             persistStatus(ticker, "done");
             // Create a setup from cache if a clear entry signal exists
             const sig = cached.result?.entrySignal;
-            if (sig?.hasEntry) {
-              const primaryPattern = cached.result?.patterns?.find(
-                (p: { type: string }) => p.type !== "support" && p.type !== "resistance"
-              );
-              fetch("/api/setups", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  ticker,
-                  companyName:  cached.meta?.name,
-                  pattern:      primaryPattern?.type ?? "momentum_continuation",
-                  confidence:   primaryPattern?.confidenceScore ?? 0,
-                  entryPrice:   sig.entryPrice,
-                  stopPrice:    sig.stopLoss,
-                  targetPrice:  sig.target,
-                  rationale:    sig.rationale ?? null,
-                }),
-              }).catch(() => {});
-            }
+            const primaryPattern = cached.result?.patterns?.find(
+              (p: { type: string }) => p.type !== "support" && p.type !== "resistance"
+            );
+            fetch("/api/setups", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                ticker,
+                companyName:  cached.meta?.name,
+                pattern:      primaryPattern?.type ?? (sig?.hasEntry ? "momentum_continuation" : "watching"),
+                confidence:   primaryPattern?.confidenceScore ?? 0,
+                entryPrice:   sig?.hasEntry ? sig.entryPrice : 0,
+                stopPrice:    sig?.hasEntry ? sig.stopLoss : 0,
+                targetPrice:  sig?.hasEntry ? sig.target : 0,
+                rationale:    sig?.rationale ?? null,
+              }),
+            }).catch(() => {});
             return;
           }
         }
@@ -133,23 +131,28 @@ export function useWatchlist() {
         updateItem(ticker, { status: "done", entrySignal: es });
         persistStatus(ticker, "done");
 
-        // Auto-track as a setup if the AI found a valid entry signal
-        if (es) {
+        // Always create/update a setup row — PENDING if signal found, WATCHING otherwise
+        {
           const primaryPattern = result.patterns.find(
             (p) => p.type !== "support" && p.type !== "resistance"
           );
+          const lastBar = bars[bars.length - 1];
           fetch("/api/setups", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               ticker,
-              companyName:  meta.name,
-              pattern:      primaryPattern?.type ?? "momentum_continuation",
-              confidence:   primaryPattern?.confidenceScore ?? 0,
-              entryPrice:   es.entryPrice,
-              stopPrice:    es.stopLoss,
-              targetPrice:  es.target,
-              rationale:    result.entrySignal?.rationale ?? null,
+              companyName: meta?.name ?? ticker,
+              pattern: primaryPattern?.type ?? (es ? "momentum_continuation" : "watching"),
+              confidence: primaryPattern?.confidenceScore ?? 0,
+              entryPrice: es?.entryPrice ?? 0,
+              stopPrice: es?.stopLoss ?? 0,
+              targetPrice: es?.target ?? 0,
+              rationale: result.entrySignal?.rationale ?? null,
+              direction: es?.direction ?? "long",
+              fittedPrice: lastBar?.close ?? null,
+              patternInvalidationLevel: es?.stopLoss ?? null,
+              keyLevels: result.keyLevels ?? null,
             }),
           }).catch(() => { /* non-fatal */ });
         }
@@ -210,8 +213,8 @@ export function useWatchlist() {
                       : item
                   )
                 );
-                // Create setup only if Gemini found a clear entry
-                if (sig?.hasEntry) {
+                // Always create/update setup row (PENDING if signal, WATCHING otherwise)
+                {
                   const primaryPattern = data.result?.patterns?.find(
                     (p: { type: string }) => p.type !== "support" && p.type !== "resistance"
                   );
@@ -221,12 +224,12 @@ export function useWatchlist() {
                     body: JSON.stringify({
                       ticker:       row.ticker,
                       companyName:  data.meta?.name,
-                      pattern:      primaryPattern?.type ?? "momentum_continuation",
+                      pattern:      primaryPattern?.type ?? (sig?.hasEntry ? "momentum_continuation" : "watching"),
                       confidence:   primaryPattern?.confidenceScore ?? 0,
-                      entryPrice:   sig.entryPrice,
-                      stopPrice:    sig.stopLoss,
-                      targetPrice:  sig.target,
-                      rationale:    sig.rationale ?? null,
+                      entryPrice:   sig?.hasEntry ? sig.entryPrice : 0,
+                      stopPrice:    sig?.hasEntry ? sig.stopLoss : 0,
+                      targetPrice:  sig?.hasEntry ? sig.target : 0,
+                      rationale:    sig?.rationale ?? null,
                     }),
                   }).catch(() => {});
                 }

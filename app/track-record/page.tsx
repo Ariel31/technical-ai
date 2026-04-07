@@ -23,11 +23,13 @@ import { cn } from "@/lib/utils";
 
 function StatusBadge({ status }: { status: TrackedSetup["status"] }) {
   const map: Record<TrackedSetup["status"], { label: string; icon: React.ReactNode; className: string }> = {
-    PENDING:    { label: "Waiting for entry", icon: <Clock className="w-3 h-3" />,        className: "bg-amber-500/15 text-amber-400 border-amber-500/30" },
+    WATCHING:   { label: "Watching",          icon: <Activity className="w-3 h-3" />,      className: "bg-purple-500/15 text-purple-400 border-purple-500/30" },
+    PENDING:    { label: "Waiting for entry", icon: <Clock className="w-3 h-3" />,         className: "bg-amber-500/15 text-amber-400 border-amber-500/30" },
     ACTIVE:     { label: "Active",            icon: <Activity className="w-3 h-3" />,      className: "bg-blue-500/15 text-blue-400 border-blue-500/30" },
-    TARGET_HIT: { label: "Target Hit",        icon: <CheckCircle2 className="w-3 h-3" />, className: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" },
-    STOP_HIT:   { label: "Stop Hit",          icon: <XCircle className="w-3 h-3" />,      className: "bg-rose-500/15 text-rose-400 border-rose-500/30" },
-    EXPIRED:    { label: "Expired",           icon: <Clock className="w-3 h-3" />,         className: "bg-surface-elevated text-muted-foreground border-border" },
+    TARGET_HIT: { label: "Target Hit",        icon: <CheckCircle2 className="w-3 h-3" />,  className: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" },
+    STOP_HIT:   { label: "Stop Hit",          icon: <XCircle className="w-3 h-3" />,       className: "bg-rose-500/15 text-rose-400 border-rose-500/30" },
+    EXPIRED:    { label: "Expired",           icon: <Clock className="w-3 h-3" />,          className: "bg-surface-elevated text-muted-foreground border-border" },
+    VOIDED:     { label: "Voided",            icon: <XCircle className="w-3 h-3" />,        className: "bg-surface-elevated text-muted-foreground/50 border-border" },
   };
   const { label, icon, className } = map[status];
   return (
@@ -53,10 +55,11 @@ function StatCard({ label, value, sub, accent }: { label: string; value: string;
 // ─── Live setup card ──────────────────────────────────────────────────────────
 
 function LiveCard({ s }: { s: TrackedSetup }) {
-  const rr = s.entryPrice > 0 && s.stopPrice > 0
+  const isWatching = s.status === "WATCHING";
+  const rr = !isWatching && s.entryPrice > 0 && s.stopPrice > 0
     ? +((s.targetPrice - s.entryPrice) / (s.entryPrice - s.stopPrice)).toFixed(1)
     : 0;
-  const upside = s.entryPrice > 0
+  const upside = !isWatching && s.entryPrice > 0
     ? +((s.targetPrice - s.entryPrice) / s.entryPrice * 100).toFixed(1)
     : 0;
   const date = new Date(s.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -68,9 +71,11 @@ function LiveCard({ s }: { s: TrackedSetup }) {
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-base font-bold text-foreground">{s.ticker}</span>
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-surface-elevated text-muted-foreground border-border">
-              {s.pattern}
-            </span>
+            {!isWatching && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-surface-elevated text-muted-foreground border-border">
+                {s.pattern}
+              </span>
+            )}
             {rr > 0 && (
               <span className={cn(
                 "px-1.5 py-0.5 rounded text-[10px] font-semibold border",
@@ -89,26 +94,36 @@ function LiveCard({ s }: { s: TrackedSetup }) {
         <StatusBadge status={s.status} />
       </div>
 
-      {/* Price levels */}
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <div className="rounded-lg bg-surface-elevated p-2">
-          <p className="text-[10px] text-muted-foreground">Entry</p>
-          <p className="text-xs font-semibold text-foreground">${s.entryPrice.toFixed(2)}</p>
+      {/* Price levels — only for real setups */}
+      {isWatching ? (
+        <div className="rounded-lg bg-surface-elevated/50 border border-border border-dashed p-3 text-center">
+          <p className="text-xs text-muted-foreground">Waiting for entry signal</p>
+          <p className="text-[11px] text-muted-foreground/60 mt-0.5">AI will detect a setup automatically</p>
         </div>
-        <div className="rounded-lg bg-surface-elevated p-2">
-          <p className="text-[10px] text-muted-foreground">Stop</p>
-          <p className="text-xs font-semibold text-rose-400">${s.stopPrice.toFixed(2)}</p>
+      ) : (
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-lg bg-surface-elevated p-2">
+            <p className="text-[10px] text-muted-foreground">Entry</p>
+            <p className="text-xs font-semibold text-foreground">${s.entryPrice.toFixed(2)}</p>
+          </div>
+          <div className="rounded-lg bg-surface-elevated p-2">
+            <p className="text-[10px] text-muted-foreground">Stop</p>
+            <p className="text-xs font-semibold text-rose-400">${s.stopPrice.toFixed(2)}</p>
+          </div>
+          <div className="rounded-lg bg-surface-elevated p-2">
+            <p className="text-[10px] text-muted-foreground">Target</p>
+            <p className="text-xs font-semibold text-emerald-400">${s.targetPrice.toFixed(2)}</p>
+          </div>
         </div>
-        <div className="rounded-lg bg-surface-elevated p-2">
-          <p className="text-[10px] text-muted-foreground">Target</p>
-          <p className="text-xs font-semibold text-emerald-400">${s.targetPrice.toFixed(2)}</p>
-        </div>
-      </div>
+      )}
 
       {/* Footer */}
       <div className="flex items-center justify-between text-[11px] text-muted-foreground border-t border-border pt-2 mt-auto">
-        <span>Confidence: {s.confidence}%  ·  R/R {rr}:1  ·  +{upside}% upside</span>
-        <span>{date}</span>
+        {isWatching
+          ? <span>Added {date} · analyzing for setup</span>
+          : <span>Confidence: {s.confidence}%  ·  R/R {rr}:1  ·  +{upside}% upside</span>
+        }
+        {!isWatching && <span>{date}</span>}
       </div>
 
       {/* Analyze link */}
@@ -225,7 +240,7 @@ export default function TrackRecordPage() {
     handleRefresh();
   }, [handleRefresh]);
 
-  const live    = setups.filter((s) => s.status === "PENDING" || s.status === "ACTIVE");
+  const live    = setups.filter((s) => s.status === "WATCHING" || s.status === "PENDING" || s.status === "ACTIVE");
   const history = setups.filter((s) => s.status === "TARGET_HIT" || s.status === "STOP_HIT" || s.status === "EXPIRED");
 
   const expectancy = stats && stats.wins + stats.losses > 0
@@ -362,14 +377,14 @@ export default function TrackRecordPage() {
                   <div>
                     <p className="text-sm font-medium text-foreground mb-1">No active setups</p>
                     <p className="text-xs text-muted-foreground max-w-xs">
-                      New setups are created automatically every time the homepage runs a scan.
+                      Setups are created when the AI detects a clear entry signal for a stock in your watchlist. Add stocks to your watchlist and let them analyze.
                     </p>
                   </div>
                   <Link
-                    href="/"
+                    href="/app"
                     className="flex items-center gap-2 px-4 py-2 rounded-xl border border-accent/30 bg-accent/10 text-accent text-sm font-medium hover:bg-accent/20 transition-colors"
                   >
-                    <TrendingUp className="w-4 h-4" /> Go to Homepage
+                    <TrendingUp className="w-4 h-4" /> Go to Chart Analysis
                   </Link>
                 </div>
               ) : (

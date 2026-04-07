@@ -338,7 +338,8 @@ export type ScreenerStatus = "idle" | "scanning" | "analyzing" | "done" | "error
 
 // ─── Setup Tracking Types ───────────────────────────────────────────────────────
 
-export type SetupStatus = "PENDING" | "ACTIVE" | "TARGET_HIT" | "STOP_HIT" | "EXPIRED";
+export type SetupStatus = "WATCHING" | "PENDING" | "ACTIVE" | "TARGET_HIT" | "STOP_HIT" | "EXPIRED" | "VOIDED";
+export type ValidityState = "Active" | "Weakened" | "Invalidated";
 
 export interface TrackedSetup {
   id: string;
@@ -353,12 +354,19 @@ export interface TrackedSetup {
   status: SetupStatus;
   entryTriggeredAt: string | null;
   closedAt: string | null;
-  result: "WIN" | "LOSS" | null;
+  result: "WIN" | "LOSS" | "VOIDED" | null;
   returnPercent: number | null;
   scanSource: string;
   setupScore: number | null;
   opportunityScore: number | null;
   reasoning: string | null;
+  direction: "long" | "short";
+  fittedPrice: number | null;
+  patternInvalidationLevel: number | null;
+  keyLevels: { supports: number[]; resistances: number[] } | null;
+  validityState: ValidityState;
+  aiValidationNote: string | null;
+  lastCheckedAt: string | null;
 }
 
 export interface TrackRecordStats {
@@ -372,6 +380,7 @@ export interface TrackRecordStats {
   bestTrade: number;
   worstTrade: number;
   activeCount: number;   // PENDING + ACTIVE
+  voided: number;
 }
 
 // ─── Watchlist Types ────────────────────────────────────────────────────────────

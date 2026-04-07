@@ -13,7 +13,7 @@ export async function GET() {
     const empty: TrackRecordStats = {
       totalSetups: 0, wins: 0, losses: 0, winRate: 0,
       avgReturn: 0, avgWin: 0, avgLoss: 0,
-      bestTrade: 0, worstTrade: 0, activeCount: 0,
+      bestTrade: 0, worstTrade: 0, activeCount: 0, voided: 0,
     };
     return Response.json(empty, { status: 401 });
   }
@@ -27,9 +27,10 @@ export async function GET() {
       WHERE s.user_id = ${userId} AND s.scan_source = 'watchlist'
     ` as { status: string; result: string | null; return_percent: number | null }[];
 
-    const closed = rows.filter((r) => r.result === "WIN" || r.result === "LOSS");
-    const wins   = closed.filter((r) => r.result === "WIN");
-    const losses = closed.filter((r) => r.result === "LOSS");
+    const voided  = rows.filter((r) => r.result === "VOIDED").length;
+    const closed  = rows.filter((r) => r.result === "WIN" || r.result === "LOSS");
+    const wins    = closed.filter((r) => r.result === "WIN");
+    const losses  = closed.filter((r) => r.result === "LOSS");
     const activeCount = rows.filter((r) => r.status === "PENDING" || r.status === "ACTIVE").length;
 
     const returns     = closed.map((r) => Number(r.return_percent ?? 0));
@@ -50,6 +51,7 @@ export async function GET() {
       bestTrade:    returns.length === 0 ? 0 : +Math.max(...returns).toFixed(1),
       worstTrade:   returns.length === 0 ? 0 : +Math.min(...returns).toFixed(1),
       activeCount,
+      voided,
     };
 
     return Response.json(stats);
@@ -58,7 +60,7 @@ export async function GET() {
     const empty: TrackRecordStats = {
       totalSetups: 0, wins: 0, losses: 0, winRate: 0,
       avgReturn: 0, avgWin: 0, avgLoss: 0,
-      bestTrade: 0, worstTrade: 0, activeCount: 0,
+      bestTrade: 0, worstTrade: 0, activeCount: 0, voided: 0,
     };
     return Response.json(empty);
   }

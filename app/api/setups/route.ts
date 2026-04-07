@@ -31,24 +31,31 @@ export const dynamic = "force-dynamic";
 
 function rowToSetup(r: Record<string, unknown>): TrackedSetup {
   return {
-    id:                 r.id as string,
-    ticker:             r.ticker as string,
-    companyName:        r.company_name as string | null,
-    pattern:            r.pattern as string,
-    confidence:         Number(r.confidence),
-    entryPrice:         Number(r.entry_price),
-    stopPrice:          Number(r.stop_price),
-    targetPrice:        Number(r.target_price),
-    createdAt:          r.created_at as string,
-    status:             r.status as TrackedSetup["status"],
-    entryTriggeredAt:   r.entry_triggered_at as string | null,
-    closedAt:           r.closed_at as string | null,
-    result:             r.result as "WIN" | "LOSS" | null,
-    returnPercent:      r.return_percent != null ? Number(r.return_percent) : null,
-    scanSource:         r.scan_source as string,
-    setupScore:         r.setup_score != null ? Number(r.setup_score) : null,
-    opportunityScore:   r.opportunity_score != null ? Number(r.opportunity_score) : null,
-    reasoning:          r.reasoning as string | null,
+    id:                         r.id as string,
+    ticker:                     r.ticker as string,
+    companyName:                r.company_name as string | null,
+    pattern:                    r.pattern as string,
+    confidence:                 Number(r.confidence),
+    entryPrice:                 Number(r.entry_price),
+    stopPrice:                  Number(r.stop_price),
+    targetPrice:                Number(r.target_price),
+    createdAt:                  r.created_at as string,
+    status:                     r.status as TrackedSetup["status"],
+    entryTriggeredAt:           r.entry_triggered_at as string | null,
+    closedAt:                   r.closed_at as string | null,
+    result:                     r.result as "WIN" | "LOSS" | "VOIDED" | null,
+    returnPercent:              r.return_percent != null ? Number(r.return_percent) : null,
+    scanSource:                 r.scan_source as string,
+    setupScore:                 r.setup_score != null ? Number(r.setup_score) : null,
+    opportunityScore:           r.opportunity_score != null ? Number(r.opportunity_score) : null,
+    reasoning:                  r.reasoning as string | null,
+    direction:                  (r.direction as "long" | "short") ?? "long",
+    fittedPrice:                r.fitted_price != null ? Number(r.fitted_price) : null,
+    patternInvalidationLevel:   r.pattern_invalidation_level != null ? Number(r.pattern_invalidation_level) : null,
+    keyLevels:                  r.key_levels ? (r.key_levels as { supports: number[]; resistances: number[] }) : null,
+    validityState:              (r.validity_state as import("@/lib/types").ValidityState) ?? "Active",
+    aiValidationNote:           r.ai_validation_note as string | null,
+    lastCheckedAt:              r.last_checked_at as string | null,
   };
 }
 
@@ -67,24 +74,105 @@ export async function POST(req: Request) {
       stopPrice: number;
       targetPrice: number;
       rationale?: string;
+      direction?: "long" | "short";
+      fittedPrice?: number;
+      patternInvalidationLevel?: number;
+      keyLevels?: { supports: number[]; resistances: number[] };
     };
 
-    // Skip if ticker already PENDING or ACTIVE for this user
-    const existing = await sql`
+    // If ACTIVE or closed, skip entirely
+    const closedExisting = await sql`
       SELECT id FROM setups
-      WHERE user_id = ${userId} AND ticker = ${body.ticker} AND status IN ('PENDING', 'ACTIVE')
+      WHERE user_id = ${userId} AND ticker = ${body.ticker}
+        AND status IN ('ACTIVE', 'TARGET_HIT', 'STOP_HIT', 'EXPIRED', 'VOIDED')
       LIMIT 1
     `;
-    if (existing.length > 0) return Response.json({ ok: true, skipped: true });
+    if (closedExisting.length > 0) return Response.json({ ok: true, skipped: true });
 
+    // If PENDING and we have a new signal, keep prices in sync with latest AI analysis
+    const pendingExisting = await sql`
+      SELECT id FROM setups
+      WHERE user_id = ${userId} AND ticker = ${body.ticker} AND status = 'PENDING'
+      LIMIT 1
+    ` as { id: string }[];
+    const hasSignal = body.entryPrice && body.entryPrice > 0;
+
+    if (pendingExisting.length > 0 && hasSignal) {
+      await sql`
+        UPDATE setups SET
+          entry_price  = ${body.entryPrice},
+          stop_price   = ${body.stopPrice},
+          target_price = ${body.targetPrice},
+          pattern      = ${body.pattern},
+          confidence   = ${body.confidence ?? 0},
+          reasoning    = ${body.rationale ?? null},
+          company_name = COALESCE(${body.companyName ?? null}, company_name),
+          direction    = ${body.direction ?? 'long'},
+          fitted_price = ${body.fittedPrice ?? null},
+          pattern_invalidation_level = ${body.patternInvalidationLevel ?? null},
+          key_levels   = ${body.keyLevels ? sql.json(body.keyLevels) : null}
+        WHERE id = ${pendingExisting[0].id}
+      `;
+      return Response.json({ ok: true, synced: true });
+    }
+
+    if (pendingExisting.length > 0 && !hasSignal) {
+      // Lost the signal — downgrade back to WATCHING
+      await sql`
+        UPDATE setups SET status = 'WATCHING', entry_price = 0, stop_price = 0, target_price = 0
+        WHERE id = ${pendingExisting[0].id}
+      `;
+      return Response.json({ ok: true, downgraded: true });
+    }
+
+    // If body has a real entry signal, check if we should upgrade a WATCHING row
+    const watchingExisting = await sql`
+      SELECT id FROM setups
+      WHERE user_id = ${userId} AND ticker = ${body.ticker} AND status = 'WATCHING'
+      LIMIT 1
+    ` as { id: string }[];
+
+    if (watchingExisting.length > 0 && hasSignal) {
+      // Upgrade WATCHING → PENDING
+      await sql`
+        UPDATE setups SET
+          status       = 'PENDING',
+          pattern      = ${body.pattern},
+          confidence   = ${body.confidence ?? 0},
+          entry_price  = ${body.entryPrice},
+          stop_price   = ${body.stopPrice},
+          target_price = ${body.targetPrice},
+          reasoning    = ${body.rationale ?? null},
+          company_name = ${body.companyName ?? null},
+          direction    = ${body.direction ?? 'long'},
+          fitted_price = ${body.fittedPrice ?? null},
+          pattern_invalidation_level = ${body.patternInvalidationLevel ?? null},
+          key_levels   = ${body.keyLevels ? sql.json(body.keyLevels) : null}
+        WHERE id = ${watchingExisting[0].id}
+      `;
+      return Response.json({ ok: true, upgraded: true });
+    }
+
+    if (watchingExisting.length > 0 && !hasSignal) {
+      // Still no signal — keep WATCHING as is
+      return Response.json({ ok: true, skipped: true });
+    }
+
+    // No existing row — insert (WATCHING if no signal, PENDING if signal)
+    const status = hasSignal ? 'PENDING' : 'WATCHING';
     await sql`
       INSERT INTO setups
         (user_id, ticker, company_name, pattern, confidence,
-         entry_price, stop_price, target_price, scan_source, reasoning)
+         entry_price, stop_price, target_price, scan_source, reasoning,
+         direction, fitted_price, pattern_invalidation_level, key_levels, status)
       VALUES
-        (${userId}, ${body.ticker}, ${body.companyName ?? null}, ${body.pattern},
-         ${body.confidence ?? 0}, ${body.entryPrice}, ${body.stopPrice}, ${body.targetPrice},
-         'watchlist', ${body.rationale ?? null})
+        (${userId}, ${body.ticker}, ${body.companyName ?? null}, ${body.pattern ?? 'watching'},
+         ${body.confidence ?? 0}, ${body.entryPrice ?? 0}, ${body.stopPrice ?? 0}, ${body.targetPrice ?? 0},
+         'watchlist', ${body.rationale ?? null},
+         ${body.direction ?? 'long'}, ${body.fittedPrice ?? null},
+         ${body.patternInvalidationLevel ?? null},
+         ${body.keyLevels ? sql.json(body.keyLevels) : null},
+         ${status})
     `;
     return Response.json({ ok: true });
   } catch (err) {
