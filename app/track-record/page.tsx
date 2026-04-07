@@ -71,6 +71,16 @@ function LiveCard({ s }: { s: TrackedSetup }) {
             <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-surface-elevated text-muted-foreground border-border">
               {s.pattern}
             </span>
+            {rr > 0 && (
+              <span className={cn(
+                "px-1.5 py-0.5 rounded text-[10px] font-semibold border",
+                rr >= 2 ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                : rr >= 1 ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                : "bg-rose-500/15 text-rose-400 border-rose-500/30"
+              )}>
+                R/R {rr}:1
+              </span>
+            )}
           </div>
           {s.companyName && (
             <p className="text-xs text-muted-foreground mt-0.5 truncate">{s.companyName}</p>
@@ -218,6 +228,10 @@ export default function TrackRecordPage() {
   const live    = setups.filter((s) => s.status === "PENDING" || s.status === "ACTIVE");
   const history = setups.filter((s) => s.status === "TARGET_HIT" || s.status === "STOP_HIT" || s.status === "EXPIRED");
 
+  const expectancy = stats && stats.wins + stats.losses > 0
+    ? +((stats.winRate / 100) * stats.avgWin - (1 - stats.winRate / 100) * Math.abs(stats.avgLoss)).toFixed(1)
+    : null;
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <AppHeader activePage="track-record" />
@@ -256,15 +270,61 @@ export default function TrackRecordPage() {
         ) : (
           <>
             {stats && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
                 <StatCard label="Total Setups"  value={String(stats.totalSetups)} />
                 <StatCard label="Win Rate"      value={stats.winRate > 0 ? `${stats.winRate}%` : "—"} accent="green" sub={`${stats.wins}W / ${stats.losses}L`} />
                 <StatCard label="Avg Return"    value={stats.avgReturn !== 0 ? `${stats.avgReturn > 0 ? "+" : ""}${stats.avgReturn}%` : "—"} accent={stats.avgReturn > 0 ? "green" : stats.avgReturn < 0 ? "red" : undefined} />
+                <StatCard
+                  label="Expectancy"
+                  value={expectancy !== null ? `${expectancy > 0 ? "+" : ""}${expectancy}%` : "—"}
+                  accent={expectancy !== null && expectancy > 0 ? "green" : expectancy !== null && expectancy < 0 ? "red" : undefined}
+                />
                 <StatCard label="Best Trade"    value={stats.bestTrade !== 0 ? `+${stats.bestTrade}%` : "—"} accent="green" />
                 <StatCard label="Worst Trade"   value={stats.worstTrade !== 0 ? `${stats.worstTrade}%` : "—"} accent="red" />
                 <StatCard label="Active"        value={String(stats.activeCount)} accent="blue" sub="pending + active" />
               </div>
             )}
+
+            {/* Pattern breakdown */}
+            {(() => {
+              const patternMap = new Map<string, { wins: number; losses: number; returns: number[] }>();
+              for (const s of history) {
+                if (!s.pattern) continue;
+                const p = patternMap.get(s.pattern) ?? { wins: 0, losses: 0, returns: [] };
+                if (s.result === "WIN") p.wins++;
+                if (s.result === "LOSS") p.losses++;
+                if (s.returnPercent != null) p.returns.push(s.returnPercent);
+                patternMap.set(s.pattern, p);
+              }
+              const rows = [...patternMap.entries()]
+                .map(([pat, d]) => ({
+                  pattern: pat,
+                  wins: d.wins,
+                  losses: d.losses,
+                  avgReturn: d.returns.length ? +(d.returns.reduce((a, b) => a + b, 0) / d.returns.length).toFixed(1) : 0,
+                  winPct: d.wins + d.losses > 0 ? Math.round(d.wins / (d.wins + d.losses) * 100) : 0,
+                }))
+                .sort((a, b) => b.avgReturn - a.avgReturn);
+              if (rows.length === 0) return null;
+              return (
+                <div className="rounded-xl border border-border bg-surface/60 p-4 space-y-3">
+                  <h3 className="text-sm font-semibold text-foreground">By Pattern</h3>
+                  {rows.map((row) => (
+                    <div key={row.pattern} className="flex items-center gap-3">
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded border bg-surface-elevated text-muted-foreground border-border w-40 truncate shrink-0">
+                        {row.pattern}
+                      </span>
+                      <div className="flex-1 h-1.5 rounded-full bg-surface-elevated overflow-hidden">
+                        <div className="h-full rounded-full bg-emerald-500/70" style={{ width: `${row.winPct}%` }} />
+                      </div>
+                      <span className="text-[11px] text-muted-foreground shrink-0 w-36 text-right">
+                        {row.wins}W / {row.losses}L · {row.avgReturn >= 0 ? "+" : ""}{row.avgReturn}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
 
             {/* Tabs */}
             <div className="flex items-center gap-1 p-1 rounded-xl border border-border bg-surface/60 w-fit">

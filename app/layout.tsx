@@ -3,6 +3,7 @@ import "./globals.css";
 import SessionProvider from "@/components/SessionProvider";
 import QueryProvider from "@/components/QueryProvider";
 import ConsentModal from "@/components/ui/ConsentModal";
+import DraftBar from "@/components/ui/DraftBar";
 
 export const metadata: Metadata = {
   title: "TechnicalAI — AI-Powered Technical Analysis",
@@ -44,6 +45,7 @@ export default function RootLayout({
           <QueryProvider>
             {children}
             <ConsentModal />
+            <DraftBar />
           </QueryProvider>
         </SessionProvider>
       </body>

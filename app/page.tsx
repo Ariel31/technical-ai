@@ -316,12 +316,11 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
 
       {/* Algorithmic signals */}
       {pick.signals?.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          {pick.signals.map((s) => (
-            <div key={s} className="flex items-center gap-2 text-sm text-muted-foreground">
-              <div className={cn("w-1 h-1 rounded-full shrink-0", isLong ? "bg-bull" : "bg-bear")} />
-              {s}
-            </div>
+        <div className="flex flex-wrap gap-1">
+          {pick.signals.map((sig) => (
+            <span key={sig} className="text-[11px] px-2 py-0.5 rounded bg-surface-elevated text-muted-foreground border border-border/60">
+              {sig}
+            </span>
           ))}
         </div>
       )}
@@ -332,41 +331,32 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
       </p>
 
       {/* CTAs */}
-      <div className="flex gap-2">
+      <div className="flex items-center gap-2">
         {/* Add to Draft */}
         <button
           onClick={handleAddToDraft}
           className={cn(
-            "flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all border shrink-0",
+            "flex items-center gap-1 text-xs font-medium border px-3 py-1.5 rounded-lg transition-all flex-1 justify-center",
             draftState === "added"
-              ? "bg-accent/15 border-accent/40 text-accent cursor-default"
-              : "bg-surface border-border text-muted-foreground hover:text-foreground hover:border-accent/40 hover:bg-surface-elevated"
+              ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 cursor-default"
+              : "bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20"
           )}
           title={draftState === "added" ? "Added to draft" : "Add to draft for background analysis"}
         >
           {draftState === "added" ? (
-            <Check className="w-4 h-4" />
+            <Check className="w-3.5 h-3.5" />
           ) : (
-            <FileStack className="w-4 h-4" />
+            <FileStack className="w-3.5 h-3.5" />
           )}
-          <span className="hidden sm:inline">
-            {draftState === "added" ? "In Draft" : "Draft"}
-          </span>
+          {draftState === "added" ? "Added to Draft" : "Add to Draft"}
         </button>
 
         {/* Analyze Chart */}
         <Link
           href={`/app?ticker=${pick.ticker}`}
-          className={cn(
-            "flex items-center justify-center gap-2 flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all border",
-            isLong
-              ? "bg-bull/10 hover:bg-bull/20 border-bull/25 hover:border-bull/50 text-bull"
-              : "bg-bear/10 hover:bg-bear/20 border-bear/25 hover:border-bear/50 text-bear",
-          )}
+          className="flex items-center gap-1 text-xs font-medium border border-border px-3 py-1.5 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
         >
-          <BarChart2 className="w-4 h-4" />
-          Analyze Chart
-          <ChevronRight className="w-3.5 h-3.5 ml-auto" />
+          Analyze Chart →
         </Link>
       </div>
     </div>

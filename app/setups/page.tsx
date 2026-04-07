@@ -140,14 +140,13 @@ function CandidateCard({ c }: { c: CandidateSummary }) {
 
       {/* Why this stock */}
       {signals.length > 0 && (
-        <ul className="space-y-1">
+        <div className="flex flex-wrap gap-1">
           {signals.map((sig) => (
-            <li key={sig} className="flex items-start gap-1.5 text-xs text-muted-foreground">
-              <span className="mt-0.5 w-1 h-1 rounded-full bg-accent shrink-0" />
+            <span key={sig} className="text-[11px] px-2 py-0.5 rounded bg-surface-elevated text-muted-foreground border border-border/60">
               {sig}
-            </li>
+            </span>
           ))}
-        </ul>
+        </div>
       )}
 
       {/* Footer */}
@@ -157,21 +156,21 @@ function CandidateCard({ c }: { c: CandidateSummary }) {
           <button
             onClick={handleAddToDraft}
             className={cn(
-              "flex items-center gap-1 text-xs font-medium border px-2 py-1 rounded-lg transition-all",
+              "flex items-center gap-1 text-xs font-medium border px-3 py-1.5 rounded-lg transition-all flex-1 justify-center",
               draftState === "added"
-                ? "bg-accent/15 border-accent/40 text-accent cursor-default"
-                : "bg-surface border-border text-muted-foreground hover:text-foreground hover:border-accent/40"
+                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 cursor-default"
+                : "bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20"
             )}
             title={draftState === "added" ? "Added to draft" : "Add to draft"}
           >
             {draftState === "added" ? <Check className="w-3 h-3" /> : <FileStack className="w-3 h-3" />}
-            {draftState === "added" ? "Added" : "Draft"}
+            {draftState === "added" ? "Added" : "Add to Draft"}
           </button>
           <Link
             href={`/app?ticker=${c.ticker}`}
-            className="flex items-center gap-1 text-xs font-medium text-accent hover:text-accent/80 transition-colors"
+            className="flex items-center gap-1 text-xs font-medium border border-border px-3 py-1.5 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
           >
-            Analyze Chart <ChevronRight className="w-3 h-3" />
+            Analyze Chart →
           </Link>
         </div>
       </div>

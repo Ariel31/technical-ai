@@ -47,10 +47,15 @@ export default function DraftPanel({
           className="flex items-center gap-2 flex-1 text-left"
         >
           <FileStack className="w-4 h-4 text-accent/70" />
-          <span className="text-sm font-semibold text-foreground">Draft</span>
+          <span className="text-sm font-semibold text-foreground">Draft queue</span>
           {draft.length > 0 && (
             <span className="text-xs text-muted-foreground bg-surface-elevated px-1.5 py-0.5 rounded-full">
               {draft.length}
+            </span>
+          )}
+          {doneCount > 0 && (
+            <span className="text-[10px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded-full">
+              {doneCount} ready
             </span>
           )}
           {analyzingCount > 0 && (
@@ -86,11 +91,6 @@ export default function DraftPanel({
             </div>
           ) : (
             <div className="p-2 flex flex-col gap-1">
-              {doneCount > 0 && analyzingCount === 0 && (
-                <p className="text-[10px] text-muted-foreground px-1 pb-1">
-                  {doneCount} ready · click to view, <BookmarkPlus className="w-3 h-3 inline -mt-px" /> to save
-                </p>
-              )}
               {draft.map((item) => (
                 <DraftItemCard
                   key={item.ticker}
@@ -102,6 +102,11 @@ export default function DraftPanel({
                   onReanalyze={() => onReanalyze(item.ticker)}
                 />
               ))}
+              {draft.length > 0 && (
+                <p className="text-[10px] text-muted-foreground/40 text-center pt-1 pb-0.5 select-none">
+                  ← → to navigate · ☆ to watchlist
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -133,14 +138,14 @@ function DraftItemCard({
     <div
       onClick={isDone ? onSelect : undefined}
       className={cn(
-        "group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg border transition-all",
+        "group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-l-2 transition-all",
         isDone && isActive
-          ? "bg-accent/10 border-accent/30"
+          ? "bg-accent/10 border-accent/30 border-l-emerald-500/50"
           : isDone
-          ? "bg-surface-elevated/50 border-border/50 hover:bg-surface-elevated hover:border-border cursor-pointer"
+          ? "bg-surface-elevated/50 border-border/50 hover:bg-surface-elevated hover:border-border cursor-pointer border-l-emerald-500/50"
           : isError
-          ? "bg-bear/5 border-bear/20"
-          : "bg-surface/30 border-border/30 opacity-60"
+          ? "bg-bear/5 border-bear/20 border-l-rose-500/50"
+          : "bg-surface/30 border-border/30 opacity-60 border-l-amber-500/30"
       )}
     >
       {/* Status dot */}
