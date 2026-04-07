@@ -19,10 +19,13 @@ import {
   Sparkles,
   AlertCircle,
   Trophy,
+  FileStack,
+  Check,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import type { ScreenerPick, ScreenerResult, ScreenerStatus, TrackRecordStats } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { addToDraftStorage } from "@/hooks/useDraft";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -215,6 +218,13 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
     pick.confidence >= 55 ? "text-yellow-400" :
     "text-muted-foreground";
 
+  const [draftState, setDraftState] = useState<"idle" | "added">("idle");
+
+  function handleAddToDraft() {
+    const added = addToDraftStorage(pick.ticker, pick.companyName ?? pick.ticker);
+    setDraftState(added ? "added" : "added"); // show "added" even if already existed
+  }
+
   return (
     <div className={cn(
       "relative flex flex-col gap-5 rounded-2xl border bg-surface/60 backdrop-blur-sm p-6",
@@ -321,20 +331,115 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
         {pick.reasoning}
       </p>
 
-      {/* Analyze CTA */}
-      <Link
-        href={`/app?ticker=${pick.ticker}`}
-        className={cn(
-          "flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold transition-all border",
-          isLong
-            ? "bg-bull/10 hover:bg-bull/20 border-bull/25 hover:border-bull/50 text-bull"
-            : "bg-bear/10 hover:bg-bear/20 border-bear/25 hover:border-bear/50 text-bear",
-        )}
-      >
-        <BarChart2 className="w-4 h-4" />
-        Analyze Chart
-        <ChevronRight className="w-3.5 h-3.5 ml-auto" />
-      </Link>
+      {/* CTAs */}
+      <div className="flex gap-2">
+        {/* Add to Draft */}
+        <button
+          onClick={handleAddToDraft}
+          className={cn(
+            "flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all border shrink-0",
+            draftState === "added"
+              ? "bg-accent/15 border-accent/40 text-accent cursor-default"
+              : "bg-surface border-border text-muted-foreground hover:text-foreground hover:border-accent/40 hover:bg-surface-elevated"
+          )}
+          title={draftState === "added" ? "Added to draft" : "Add to draft for background analysis"}
+        >
+          {draftState === "added" ? (
+            <Check className="w-4 h-4" />
+          ) : (
+            <FileStack className="w-4 h-4" />
+          )}
+          <span className="hidden sm:inline">
+            {draftState === "added" ? "In Draft" : "Draft"}
+          </span>
+        </button>
+
+        {/* Analyze Chart */}
+        <Link
+          href={`/app?ticker=${pick.ticker}`}
+          className={cn(
+            "flex items-center justify-center gap-2 flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all border",
+            isLong
+              ? "bg-bull/10 hover:bg-bull/20 border-bull/25 hover:border-bull/50 text-bull"
+              : "bg-bear/10 hover:bg-bear/20 border-bear/25 hover:border-bear/50 text-bear",
+          )}
+        >
+          <BarChart2 className="w-4 h-4" />
+          Analyze Chart
+          <ChevronRight className="w-3.5 h-3.5 ml-auto" />
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+// ─── Candidate row (for "Check more stocks" list) ─────────────────────────────
+
+function CandidateRow({ candidate }: { candidate: import("@/lib/types").CandidateSummary }) {
+  const [draftState, setDraftState] = useState<"idle" | "added">("idle");
+  const isPositive = candidate.change5d >= 0;
+
+  function handleAddToDraft() {
+    addToDraftStorage(candidate.ticker, candidate.name);
+    setDraftState("added");
+  }
+
+  return (
+    <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-border/60 bg-surface/40 hover:bg-surface/70 transition-colors">
+      {/* Ticker + name */}
+      <div className="w-28 shrink-0">
+        <span className="font-mono font-bold text-sm text-foreground">{candidate.ticker}</span>
+        <p className="text-xs text-muted-foreground truncate">{candidate.name}</p>
+      </div>
+
+      {/* Pattern */}
+      <div className="flex-1 min-w-0 hidden sm:block">
+        <span className="text-xs text-muted-foreground truncate">{candidate.primaryPattern}</span>
+      </div>
+
+      {/* Score */}
+      <div className="flex items-center gap-2 w-24 shrink-0">
+        <div className="flex-1 h-1 rounded-full bg-surface-elevated overflow-hidden">
+          <div
+            className="h-full rounded-full bg-accent"
+            style={{ width: `${Math.round(candidate.score)}%` }}
+          />
+        </div>
+        <span className="text-xs font-mono font-semibold text-accent w-6 text-right">
+          {Math.round(candidate.score)}
+        </span>
+      </div>
+
+      {/* 5d change */}
+      <div className="w-14 shrink-0 text-right">
+        <span className={cn("text-xs font-mono font-semibold", isPositive ? "text-bull" : "text-bear")}>
+          {isPositive ? "+" : ""}{candidate.change5d.toFixed(1)}%
+        </span>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-1.5 shrink-0">
+        <button
+          onClick={handleAddToDraft}
+          className={cn(
+            "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all",
+            draftState === "added"
+              ? "bg-accent/15 border-accent/40 text-accent cursor-default"
+              : "bg-surface border-border text-muted-foreground hover:text-foreground hover:border-accent/40"
+          )}
+          title={draftState === "added" ? "Already in draft" : "Add to draft"}
+        >
+          {draftState === "added" ? <Check className="w-3.5 h-3.5" /> : <FileStack className="w-3.5 h-3.5" />}
+          <span className="hidden sm:inline">{draftState === "added" ? "Added" : "Draft"}</span>
+        </button>
+        <Link
+          href={`/app?ticker=${candidate.ticker}`}
+          className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-accent hover:border-accent/40 transition-colors"
+          title="Analyze chart"
+        >
+          <BarChart2 className="w-3.5 h-3.5" />
+        </Link>
+      </div>
     </div>
   );
 }
@@ -354,6 +459,9 @@ export default function LandingPage() {
 
   const isLoading = status === "scanning" || status === "analyzing";
   const picks = result?.picks?.slice(0, 3) ?? [];
+  const [showAllCandidates, setShowAllCandidates] = useState(false);
+  const topTickers = new Set(picks.map((p) => p.ticker));
+  const moreCandidates = (result?.allCandidates ?? []).filter((c) => !topTickers.has(c.ticker));
 
   return (
     <div className="min-h-dvh flex flex-col">
@@ -448,11 +556,50 @@ export default function LandingPage() {
 
         {/* Results */}
         {status === "done" && picks.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 animate-fade-in">
-            {picks.map((pick, i) => (
-              <PickCard key={pick.ticker} pick={pick} rank={i + 1} />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 animate-fade-in">
+              {picks.map((pick, i) => (
+                <PickCard key={pick.ticker} pick={pick} rank={i + 1} />
+              ))}
+            </div>
+
+            {/* Check more stocks */}
+            {moreCandidates.length > 0 && (
+              <div className="mt-8 animate-fade-in">
+                <button
+                  onClick={() => setShowAllCandidates((v) => !v)}
+                  className="flex items-center gap-2 mb-4 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors group"
+                >
+                  <ChevronRight
+                    className={cn(
+                      "w-4 h-4 transition-transform",
+                      showAllCandidates ? "rotate-90" : ""
+                    )}
+                  />
+                  {showAllCandidates ? "Hide" : `Check more stocks`}
+                  <span className="text-xs font-normal bg-surface-elevated px-1.5 py-0.5 rounded-full">
+                    {moreCandidates.length} setups
+                  </span>
+                </button>
+
+                {showAllCandidates && (
+                  <div className="flex flex-col gap-1.5">
+                    {/* Column headers */}
+                    <div className="flex items-center gap-3 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      <span className="w-28 shrink-0">Ticker</span>
+                      <span className="flex-1 hidden sm:block">Pattern</span>
+                      <span className="w-24 shrink-0">Score</span>
+                      <span className="w-14 shrink-0 text-right">5d</span>
+                      <span className="w-24 shrink-0" />
+                    </div>
+                    {moreCandidates.map((c) => (
+                      <CandidateRow key={c.ticker} candidate={c} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
 
         {/* Initial loading (checking cache) */}

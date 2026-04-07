@@ -12,9 +12,11 @@ import {
   Plus,
   Search,
   TrendingUp,
+  Info,
 } from "lucide-react";
 import type { WatchlistItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import Tooltip from "@/components/ui/Tooltip";
 
 interface WatchlistPanelProps {
   watchlist: WatchlistItem[];
@@ -23,6 +25,9 @@ interface WatchlistPanelProps {
   onAddToWatchlist: (ticker: string, name: string) => void;
   onRemove: (ticker: string) => void;
   onReanalyze: (ticker: string) => void;
+  /** Collapse state controlled by parent */
+  collapsed?: boolean;
+  onCollapsedChange?: (v: boolean) => void;
 }
 
 export default function WatchlistPanel({
@@ -32,8 +37,12 @@ export default function WatchlistPanel({
   onAddToWatchlist,
   onRemove,
   onReanalyze,
+  collapsed: collapsedProp,
+  onCollapsedChange,
 }: WatchlistPanelProps) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsedInternal, setCollapsedInternal] = useState(false);
+  const collapsed = collapsedProp ?? collapsedInternal;
+  const setCollapsed = onCollapsedChange ?? setCollapsedInternal;
   const [addValue, setAddValue] = useState("");
   const [addResults, setAddResults] = useState<
     Array<{ symbol: string; name: string; exchange: string }>
@@ -97,7 +106,7 @@ export default function WatchlistPanel({
   // ── Collapsed (icon strip) ───────────────────────────────────────────────────
   if (collapsed) {
     return (
-      <div className="w-12 shrink-0 border-r border-border bg-surface/50 flex flex-col items-center py-3 gap-2">
+      <div className="flex flex-col items-center py-3 gap-2 flex-1">
         <button
           onClick={() => setCollapsed(false)}
           className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-elevated transition-colors"
@@ -140,7 +149,7 @@ export default function WatchlistPanel({
 
   // ── Expanded ─────────────────────────────────────────────────────────────────
   return (
-    <div className="w-64 shrink-0 border-r border-border bg-surface/50 flex flex-col">
+    <div className="flex flex-col flex-1 overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
         <div className="flex items-center gap-2">
@@ -151,6 +160,9 @@ export default function WatchlistPanel({
               {watchlist.length}
             </span>
           )}
+          <Tooltip content="Your permanent tracked stocks. Analysis results are saved to the database and reloaded instantly. Stocks with an AI entry signal show entry, stop, and target levels." side="top">
+            <Info className="w-3.5 h-3.5 text-muted-foreground/50 hover:text-muted-foreground cursor-help transition-colors" />
+          </Tooltip>
         </div>
         <button
           onClick={() => setCollapsed(true)}

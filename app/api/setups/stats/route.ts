@@ -21,7 +21,10 @@ export async function GET() {
 
   try {
     const rows = await sql`
-      SELECT status, result, return_percent FROM setups WHERE user_id = ${userId} AND scan_source = 'watchlist'
+      SELECT s.status, s.result, s.return_percent
+      FROM setups s
+      INNER JOIN watchlist w ON w.user_id = s.user_id AND w.ticker = s.ticker
+      WHERE s.user_id = ${userId} AND s.scan_source = 'watchlist'
     ` as { status: string; result: string | null; return_percent: number | null }[];
 
     const closed = rows.filter((r) => r.result === "WIN" || r.result === "LOSS");

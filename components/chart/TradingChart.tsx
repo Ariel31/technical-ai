@@ -388,6 +388,20 @@ const TradingChart = forwardRef<TradingChartHandle, TradingChartProps>(function 
   const drawPattern = useCallback(
     (pattern: TechnicalPattern) => {
       if (!chartRef.current || bars.length === 0) return;
+
+      // Skip gap patterns that have already been filled by subsequent price action
+      if (pattern.type === "gap_up" || pattern.type === "gap_down") {
+        const zone = pattern.zones?.[0];
+        if (zone) {
+          const barsAfterGap = bars.filter((b) => b.time > pattern.startTime);
+          const filled =
+            pattern.type === "gap_up"
+              ? barsAfterGap.some((b) => b.low <= zone.priceTop)    // price re-entered gap zone from above
+              : barsAfterGap.some((b) => b.high >= zone.priceBottom); // price re-entered gap zone from below
+          if (filled) return;
+        }
+      }
+
       const chart = chartRef.current;
       const startTime = bars[0].time as Time;
       const endTime = bars[bars.length - 1].time as Time;

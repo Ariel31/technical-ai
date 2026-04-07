@@ -3,15 +3,17 @@
 import dynamic from "next/dynamic";
 import React, { useState, useCallback, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { Brain, Loader2, Bookmark, BookmarkCheck, Share2 } from "lucide-react";
+import { Brain, Loader2, Bookmark, BookmarkCheck, Share2, ChevronLeft, ChevronRight } from "lucide-react";
 import type { AnalysisResult, AppStatus, OHLCVBar, StockDataResponse } from "@/lib/types";
 import type { TradingChartHandle } from "@/components/chart/TradingChart";
 import TickerInput from "@/components/ui/TickerInput";
 import AnalysisPanel from "@/components/ui/AnalysisPanel";
 import StatusOverlay from "@/components/ui/StatusOverlay";
 import WatchlistPanel from "@/components/ui/WatchlistPanel";
+import DraftPanel from "@/components/ui/DraftPanel";
 import AppHeader from "@/components/ui/AppHeader";
 import { useWatchlist } from "@/hooks/useWatchlist";
+import { useDraft } from "@/hooks/useDraft";
 import { cn } from "@/lib/utils";
 
 // TradingChart uses browser APIs — load client-side only
@@ -33,12 +35,14 @@ function AppContent() {
   const [activePatternIds, setActivePatternIds] = useState<Set<string>>(new Set());
   const [showKeyLevels, setShowKeyLevels] = useState(true);
   const [shareToast, setShareToast] = useState<"idle" | "uploading" | "copied" | "error">("idle");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const chartRef = useRef<TradingChartHandle>(null);
   const activeTickerRef = useRef<string>("");
 
   const { watchlist, addToWatchlist, removeFromWatchlist, reanalyze, loadCachedAnalysis } =
     useWatchlist();
+  const { draft, removeFromDraft, reanalyzeDraft } = useDraft();
 
   const isInWatchlist = watchlist.some((item) => item.ticker === ticker);
 
@@ -289,15 +293,37 @@ function AppContent() {
       <main className="flex-1 min-h-0 overflow-hidden">
         <div className="h-full max-w-[1800px] mx-auto flex">
 
-          {/* Watchlist Left Sidebar */}
-          <WatchlistPanel
-            watchlist={watchlist}
-            activeTicker={ticker || undefined}
-            onSelect={handleWatchlistSelect}
-            onAddToWatchlist={addToWatchlist}
-            onRemove={removeFromWatchlist}
-            onReanalyze={reanalyze}
-          />
+          {/* ── Left Sidebar (Watchlist + Draft) ─────────────────────────────── */}
+          <div
+            className={cn(
+              "shrink-0 border-r border-border bg-surface/50 flex flex-col h-full overflow-hidden transition-all duration-200",
+              sidebarCollapsed ? "w-12" : "w-64"
+            )}
+          >
+            <WatchlistPanel
+              watchlist={watchlist}
+              activeTicker={ticker || undefined}
+              onSelect={handleWatchlistSelect}
+              onAddToWatchlist={addToWatchlist}
+              onRemove={removeFromWatchlist}
+              onReanalyze={reanalyze}
+              collapsed={sidebarCollapsed}
+              onCollapsedChange={setSidebarCollapsed}
+            />
+            {!sidebarCollapsed && (
+              <DraftPanel
+                draft={draft}
+                activeTicker={ticker || undefined}
+                onSelect={handleWatchlistSelect}
+                onPromoteToWatchlist={(t, name) => {
+                  addToWatchlist(t, name);
+                  removeFromDraft(t);
+                }}
+                onRemove={removeFromDraft}
+                onReanalyze={reanalyzeDraft}
+              />
+            )}
+          </div>
 
           {/* Chart Area */}
           <div className="flex-1 relative p-3 min-w-0 min-h-0 flex flex-col gap-2">

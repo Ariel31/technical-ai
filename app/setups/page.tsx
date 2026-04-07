@@ -12,9 +12,12 @@ import {
   ChevronRight,
   Loader2,
   AlertCircle,
+  FileStack,
+  Check,
 } from "lucide-react";
 import type { CandidateSummary, ScreenerResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { addToDraftStorage } from "@/hooks/useDraft";
 
 // ─── Sort options ─────────────────────────────────────────────────────────────
 
@@ -103,6 +106,12 @@ function buildSignals(c: CandidateSummary): string[] {
 function CandidateCard({ c }: { c: CandidateSummary }) {
   const patternColor = PATTERN_COLORS[c.pattern] ?? "bg-surface-elevated text-muted-foreground border-border";
   const signals = buildSignals(c);
+  const [draftState, setDraftState] = useState<"idle" | "added">("idle");
+
+  function handleAddToDraft() {
+    addToDraftStorage(c.ticker, c.name);
+    setDraftState("added");
+  }
 
   return (
     <div className="rounded-xl border border-border bg-surface/60 p-4 flex flex-col gap-3 hover:border-accent/30 transition-colors">
@@ -142,14 +151,29 @@ function CandidateCard({ c }: { c: CandidateSummary }) {
       )}
 
       {/* Footer */}
-      <div className="flex items-center justify-between pt-1 border-t border-border mt-auto">
+      <div className="flex items-center justify-between gap-2 pt-1 border-t border-border mt-auto">
         <span className="text-xs text-muted-foreground">${c.price.toFixed(2)}</span>
-        <Link
-          href={`/app?ticker=${c.ticker}`}
-          className="flex items-center gap-1 text-xs font-medium text-accent hover:text-accent/80 transition-colors"
-        >
-          Analyze Chart <ChevronRight className="w-3 h-3" />
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleAddToDraft}
+            className={cn(
+              "flex items-center gap-1 text-xs font-medium border px-2 py-1 rounded-lg transition-all",
+              draftState === "added"
+                ? "bg-accent/15 border-accent/40 text-accent cursor-default"
+                : "bg-surface border-border text-muted-foreground hover:text-foreground hover:border-accent/40"
+            )}
+            title={draftState === "added" ? "Added to draft" : "Add to draft"}
+          >
+            {draftState === "added" ? <Check className="w-3 h-3" /> : <FileStack className="w-3 h-3" />}
+            {draftState === "added" ? "Added" : "Draft"}
+          </button>
+          <Link
+            href={`/app?ticker=${c.ticker}`}
+            className="flex items-center gap-1 text-xs font-medium text-accent hover:text-accent/80 transition-colors"
+          >
+            Analyze Chart <ChevronRight className="w-3 h-3" />
+          </Link>
+        </div>
       </div>
     </div>
   );

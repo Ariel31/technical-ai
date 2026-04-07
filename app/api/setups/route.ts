@@ -102,19 +102,23 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const statusParam = url.searchParams.get("status");
 
+    // Only return setups for tickers currently in the user's watchlist —
+    // removing a stock from the watchlist removes it from the track record too.
     let rows: Record<string, unknown>[];
     if (statusParam) {
       const statuses = statusParam.split(",").map((s) => s.trim());
       rows = await sql`
-        SELECT * FROM setups
-        WHERE user_id = ${userId} AND scan_source = 'watchlist' AND status = ANY(${statuses})
-        ORDER BY created_at DESC
+        SELECT s.* FROM setups s
+        INNER JOIN watchlist w ON w.user_id = s.user_id AND w.ticker = s.ticker
+        WHERE s.user_id = ${userId} AND s.scan_source = 'watchlist' AND s.status = ANY(${statuses})
+        ORDER BY s.created_at DESC
       ` as Record<string, unknown>[];
     } else {
       rows = await sql`
-        SELECT * FROM setups
-        WHERE user_id = ${userId} AND scan_source = 'watchlist'
-        ORDER BY created_at DESC
+        SELECT s.* FROM setups s
+        INNER JOIN watchlist w ON w.user_id = s.user_id AND w.ticker = s.ticker
+        WHERE s.user_id = ${userId} AND s.scan_source = 'watchlist'
+        ORDER BY s.created_at DESC
       ` as Record<string, unknown>[];
     }
 
