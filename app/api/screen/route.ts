@@ -38,12 +38,26 @@ function sse(data: object): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);
 }
 
-export async function POST(_req: Request) {
+export async function POST(req: Request) {
   const session = await auth();
   if (!session?.user?.id) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   const userId = session.user.id;
+
+  // Optional custom universe from "Analyze My List" feature
+  let customUniverse: string[] | null = null;
+  try {
+    const body = await req.json();
+    if (Array.isArray(body.universe) && body.universe.length > 0) {
+      customUniverse = body.universe
+        .map((t: string) => t.replace(/^[A-Z]+:/, "").toUpperCase().trim())
+        .filter((t: string) => /^[A-Z.]{1,7}$/.test(t));
+    }
+  } catch { /* no body — standard scan */ }
+
+  const universe = customUniverse ?? SCAN_UNIVERSE;
+  const isCustom = customUniverse !== null;
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -56,7 +70,7 @@ export async function POST(_req: Request) {
         send({
           type: "progress",
           phase: "scanning",
-          message: `Starting scan of ${SCAN_UNIVERSE.length} liquid stocks…`,
+          message: `Starting scan of ${universe.length} stock${universe.length === 1 ? "" : "s"}…`,
           step: 1,
           totalSteps: 3,
         });
@@ -87,15 +101,15 @@ export async function POST(_req: Request) {
         const barsMap = new Map<string, Array<{ t: number; o: number; h: number; l: number; c: number }>>();
 
         const batches: string[][] = [];
-        for (let i = 0; i < SCAN_UNIVERSE.length; i += OHLCV_BATCH_SIZE) {
-          batches.push(SCAN_UNIVERSE.slice(i, i + OHLCV_BATCH_SIZE));
+        for (let i = 0; i < universe.length; i += OHLCV_BATCH_SIZE) {
+          batches.push(universe.slice(i, i + OHLCV_BATCH_SIZE));
         }
 
         for (let i = 0; i < batches.length; i++) {
           send({
             type: "progress",
             phase: "scanning",
-            message: `Analysing stocks ${i * OHLCV_BATCH_SIZE + 1}–${Math.min((i + 1) * OHLCV_BATCH_SIZE, SCAN_UNIVERSE.length)} of ${SCAN_UNIVERSE.length}`,
+            message: `Analysing stocks ${i * OHLCV_BATCH_SIZE + 1}–${Math.min((i + 1) * OHLCV_BATCH_SIZE, universe.length)} of ${universe.length}`,
             step: 2,
             totalSteps: 3,
             batch: i + 1,
@@ -141,7 +155,7 @@ export async function POST(_req: Request) {
           }
         }
 
-        console.log(`[Screener] Deep analysis complete: ${SCAN_UNIVERSE.length} fetched, ${deepCandidates.length} passed filters`);
+        console.log(`[Screener] Deep analysis complete: ${universe.length} fetched, ${deepCandidates.length} passed filters`);
 
         // Assign RS percentile ranks
         assignRSRanks(deepCandidates);
@@ -226,11 +240,13 @@ export async function POST(_req: Request) {
 
         send({ type: "done", result: screenerResult });
 
-        // Save to top_picks cache (per user — delete only this user's old row)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        sql`DELETE FROM top_picks WHERE user_id = ${userId}`
-          .then(() => sql`INSERT INTO top_picks (user_id, result, picked_at) VALUES (${userId}, ${sql.json(screenerResult as any)}, now())`)
-          .catch(() => { /* non-fatal */ });
+        // Only persist to top_picks for the standard scan — custom list scans are ephemeral
+        if (!isCustom) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          sql`DELETE FROM top_picks WHERE user_id = ${userId}`
+            .then(() => sql`INSERT INTO top_picks (user_id, result, picked_at) VALUES (${userId}, ${sql.json(screenerResult as any)}, now())`)
+            .catch(() => { /* non-fatal */ });
+        }
 
 
       } catch (err) {

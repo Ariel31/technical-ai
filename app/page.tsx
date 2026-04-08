@@ -21,6 +21,8 @@ import {
   Trophy,
   FileStack,
   Check,
+  ListFilter,
+  X,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import type { ScreenerPick, ScreenerResult, ScreenerStatus, TrackRecordStats } from "@/lib/types";
@@ -50,13 +52,23 @@ interface ScanProgress {
 
 function useScan() {
   const queryClient = useQueryClient();
-  const [status, setStatus]     = useState<ScreenerStatus>("idle");
-  const [progress, setProgress] = useState<ScanProgress>({ message: "", step: 0, totalSteps: 3, batch: 0, totalBatches: 0 });
-  const [scanResult, setScanResult] = useState<ScreenerResult | null>(null);
-  const [scanPickedAt, setScanPickedAt] = useState<string | null>(null);
-  const [error, setError]       = useState("");
 
-  // React Query cache for top-picks — loads instantly on revisit
+  // ── Daily scan state ────────────────────────────────────────────────────
+  const [dailyStatus,   setDailyStatus]   = useState<ScreenerStatus>("idle");
+  const [dailyScanResult, setDailyScanResult] = useState<ScreenerResult | null>(null);
+  const [dailyScanPickedAt, setDailyScanPickedAt] = useState<string | null>(null);
+  const [dailyError,    setDailyError]    = useState("");
+
+  // ── Custom scan state ───────────────────────────────────────────────────
+  const [customStatus,   setCustomStatus]   = useState<ScreenerStatus>("idle");
+  const [customResult,   setCustomResult]   = useState<ScreenerResult | null>(null);
+  const [customPickedAt, setCustomPickedAt] = useState<string | null>(null);
+  const [customError,    setCustomError]    = useState("");
+
+  // Shared progress (only one scan runs at a time)
+  const [progress, setProgress] = useState<ScanProgress>({ message: "", step: 0, totalSteps: 3, batch: 0, totalBatches: 0 });
+
+  // React Query cache for daily top-picks — loads instantly on revisit
   const { data: cached } = useQuery({
     queryKey: ["top-picks"],
     queryFn: async () => {
@@ -64,26 +76,41 @@ function useScan() {
       const data = await res.json();
       return data as { result: ScreenerResult | null; pickedAt: string | null };
     },
-    staleTime: 60 * 60 * 1000, // 1 hour — top picks only change once daily
+    staleTime: 60 * 60 * 1000,
   });
 
-  // Hydrate status from cache on first load
   useEffect(() => {
-    if (cached?.result && cached?.pickedAt && status === "idle") {
-      setStatus("done");
-    } else if (cached !== undefined && !cached?.result && status === "idle") {
-      setStatus("empty" as ScreenerStatus);
+    if (cached?.result && dailyStatus === "idle") {
+      setDailyStatus("done");
+    } else if (cached !== undefined && !cached?.result && dailyStatus === "idle") {
+      setDailyStatus("empty" as ScreenerStatus);
     }
-  }, [cached, status]);
+  }, [cached, dailyStatus]);
 
-  const runScan = useCallback(async () => {
-    setStatus("scanning");
+  // Core SSE runner — shared logic for both scan types
+  const runScan = useCallback(async (universe?: string[]) => {
+    const isCustom = !!universe;
     setProgress({ message: "Initializing scanner…", step: 0, totalSteps: 3, batch: 0, totalBatches: 0 });
-    setScanResult(null);
-    setError("");
+
+    if (isCustom) {
+      setCustomStatus("scanning");
+      setCustomResult(null);
+      setCustomError("");
+    } else {
+      setDailyStatus("scanning");
+      setDailyScanResult(null);
+      setDailyError("");
+    }
+
+    const updateStatus = (s: ScreenerStatus) => isCustom ? setCustomStatus(s) : setDailyStatus(s);
+    const updateError  = (e: string)          => isCustom ? setCustomError(e)  : setDailyError(e);
 
     try {
-      const resp = await fetch("/api/screen", { method: "POST" });
+      const resp = await fetch("/api/screen", {
+        method: "POST",
+        headers: universe ? { "Content-Type": "application/json" } : {},
+        body:    universe ? JSON.stringify({ universe }) : undefined,
+      });
       if (!resp.ok || !resp.body) throw new Error("Screener request failed");
 
       const reader  = resp.body.getReader();
@@ -102,7 +129,7 @@ function useScan() {
           try {
             const ev = JSON.parse(line.slice(6));
             if (ev.type === "progress") {
-              setStatus(ev.phase === "analyzing" ? "analyzing" : "scanning");
+              updateStatus(ev.phase === "analyzing" ? "analyzing" : "scanning");
               setProgress((prev) => ({
                 message:      ev.message      ?? prev.message,
                 step:         ev.step         ?? prev.step,
@@ -112,28 +139,39 @@ function useScan() {
               }));
             } else if (ev.type === "done") {
               const now = new Date().toISOString();
-              setScanResult(ev.result);
-              setScanPickedAt(now);
-              setStatus("done");
-              // Update the React Query cache so the result is reused on next visit
-              queryClient.setQueryData(["top-picks"], { result: ev.result, pickedAt: now });
+              updateStatus("done");
+              if (isCustom) {
+                setCustomResult(ev.result);
+                setCustomPickedAt(now);
+              } else {
+                setDailyScanResult(ev.result);
+                setDailyScanPickedAt(now);
+                queryClient.setQueryData(["top-picks"], { result: ev.result, pickedAt: now });
+              }
             } else if (ev.type === "error") {
-              setError(ev.message);
-              setStatus("error");
+              updateError(ev.message);
+              updateStatus("error");
             }
-          } catch { /* malformed SSE frame — skip */ }
+          } catch { /* malformed SSE frame */ }
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Scan failed");
-      setStatus("error");
+      const msg = err instanceof Error ? err.message : "Scan failed";
+      updateError(msg);
+      updateStatus("error");
     }
   }, [queryClient]);
 
-  const result   = scanResult   ?? cached?.result   ?? null;
-  const pickedAt = scanPickedAt ?? cached?.pickedAt ?? null;
+  const dailyResult   = dailyScanResult   ?? cached?.result   ?? null;
+  const dailyPickedAt = dailyScanPickedAt ?? cached?.pickedAt ?? null;
 
-  return { status, progress, result, pickedAt, error, runScan };
+  return {
+    dailyStatus, dailyResult, dailyPickedAt, dailyError,
+    customStatus, customResult, customPickedAt, customError,
+    progress,
+    runDailyScan:  () => runScan(),
+    runCustomScan: (universe: string[]) => runScan(universe),
+  };
 }
 
 // ─── Scanning progress UI ─────────────────────────────────────────────────────
@@ -437,9 +475,37 @@ function CandidateRow({ candidate }: { candidate: import("@/lib/types").Candidat
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LandingPage() {
-  const { status, progress, result, pickedAt, error, runScan } = useScan();
+  const {
+    dailyStatus, dailyResult, dailyPickedAt, dailyError,
+    customStatus, customResult, customPickedAt, customError,
+    progress,
+    runDailyScan, runCustomScan,
+  } = useScan();
   const { data: session } = useSession();
   const isAdmin = session?.user?.email === process.env.NEXT_PUBLIC_ADMIN_EMAIL;
+
+  // ── Tab state ────────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<"daily" | "custom">("daily");
+
+  // ── My List input state ──────────────────────────────────────────────────
+  const [myListInput, setMyListInput] = useState(() => {
+    try { return localStorage.getItem("my_ticker_list") ?? ""; } catch { return ""; }
+  });
+
+  function parseTickers(raw: string): string[] {
+    return [...new Set(
+      raw.split(/[\n,\s]+/)
+        .map((t) => t.replace(/^[A-Z]+:/i, "").toUpperCase().trim())
+        .filter((t) => /^[A-Z.]{1,7}$/.test(t))
+    )];
+  }
+
+  function handleRunMyList() {
+    const tickers = parseTickers(myListInput);
+    if (tickers.length === 0) return;
+    try { localStorage.setItem("my_ticker_list", myListInput); } catch { /* ok */ }
+    runCustomScan(tickers);
+  }
 
   const { data: trackStats } = useQuery<TrackRecordStats, Error, TrackRecordStats | undefined>({
     queryKey: ["setups-stats"],
@@ -447,11 +513,122 @@ export default function LandingPage() {
     select: (s) => (s.totalSetups > 0 ? s : undefined),
   });
 
+  // Per-tab derived state
+  const status   = activeTab === "daily" ? dailyStatus   : customStatus;
+  const result   = activeTab === "daily" ? dailyResult   : customResult;
+  const pickedAt = activeTab === "daily" ? dailyPickedAt : customPickedAt;
+  const error    = activeTab === "daily" ? dailyError    : customError;
+
   const isLoading = status === "scanning" || status === "analyzing";
   const picks = result?.picks?.slice(0, 3) ?? [];
   const [showAllCandidates, setShowAllCandidates] = useState(false);
   const topTickers = new Set(picks.map((p) => p.ticker));
   const moreCandidates = (result?.allCandidates ?? []).filter((c) => !topTickers.has(c.ticker));
+
+  // Helper: render the results for the active tab
+  function renderResults() {
+    if (isLoading) return <ScanningView status={status} progress={progress} />;
+
+    if (status === "error") return (
+      <div className="flex flex-col items-center gap-5 py-16">
+        <div className="p-3 rounded-full border border-bear/30 bg-bear/10">
+          <AlertCircle className="w-6 h-6 text-bear" />
+        </div>
+        <div className="text-center">
+          <p className="font-semibold text-foreground">Scan failed</p>
+          <p className="text-sm text-muted-foreground mt-1 max-w-sm">{error}</p>
+        </div>
+        <button
+          onClick={activeTab === "daily" ? runDailyScan : handleRunMyList}
+          className="px-4 py-2 text-sm font-medium rounded-xl border border-border text-muted-foreground hover:text-foreground hover:border-accent/40 transition-colors"
+        >
+          Try Again
+        </button>
+      </div>
+    );
+
+    if (status === "idle") return (
+      <div className="flex flex-col items-center gap-4 py-16 text-muted-foreground">
+        <Loader2 className="w-8 h-8 animate-spin" />
+        <p className="text-sm">Loading…</p>
+      </div>
+    );
+
+    if ((status as string) === "empty" && activeTab === "daily") return (
+      <div className="flex flex-col items-center gap-5 py-16">
+        <div className="p-3 rounded-full border border-accent/30 bg-accent/10">
+          <Clock className="w-6 h-6 text-accent" />
+        </div>
+        <div className="text-center">
+          <p className="font-semibold text-foreground">Picks update after market close</p>
+          <p className="text-sm text-muted-foreground mt-1 max-w-sm">
+            Our AI scans 800+ stocks every weekday at 6 PM ET. Check back after market close for today&apos;s top setups.
+          </p>
+        </div>
+        {isAdmin && (
+          <button
+            onClick={runDailyScan}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-accent/40 bg-accent/10 text-accent text-sm font-semibold hover:bg-accent/20 transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Run Scan Now
+          </button>
+        )}
+      </div>
+    );
+
+    if (status === "done" && picks.length > 0) return (
+      <>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 animate-fade-in">
+          {picks.map((pick, i) => (
+            <PickCard key={pick.ticker} pick={pick} rank={i + 1} />
+          ))}
+        </div>
+
+        {moreCandidates.length > 0 && (
+          <div className="mt-8 animate-fade-in">
+            <div className="flex items-center justify-between mb-4">
+              <button
+                onClick={() => setShowAllCandidates((v) => !v)}
+                className="flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors group"
+              >
+                <ChevronRight className={cn("w-4 h-4 transition-transform", showAllCandidates && "rotate-90")} />
+                {showAllCandidates ? "Hide" : "More setups"}
+                <span className="text-xs font-normal bg-surface-elevated px-1.5 py-0.5 rounded-full">
+                  {moreCandidates.length}
+                </span>
+              </button>
+              {activeTab === "daily" && !showAllCandidates && (
+                <Link
+                  href="/setups"
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-accent transition-colors"
+                >
+                  View all <ChevronRight className="w-3 h-3" />
+                </Link>
+              )}
+            </div>
+
+            {showAllCandidates && (
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-3 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <span className="w-28 shrink-0">Ticker</span>
+                  <span className="flex-1 hidden sm:block">Pattern</span>
+                  <span className="w-24 shrink-0">Score</span>
+                  <span className="w-14 shrink-0 text-right">5d</span>
+                  <span className="w-24 shrink-0" />
+                </div>
+                {moreCandidates.map((c) => (
+                  <CandidateRow key={c.ticker} candidate={c} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </>
+    );
+
+    return null;
+  }
 
   return (
     <div className="min-h-dvh flex flex-col">
@@ -479,153 +656,127 @@ export default function LandingPage() {
             Our AI scans 800+ liquid US equities, ranks them by setup quality and breakout
             potential, then picks the 3 highest-conviction trades.
           </p>
+        </div>
+      </section>
 
-          {/* Meta when done */}
-          {status === "done" && result && (
-            <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-muted-foreground">
-              {pickedAt && (
-                <div className="flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5" />
-                  Updated {timeAgo(pickedAt)}
-                </div>
-              )}
-              <span className="w-px h-3.5 bg-border hidden sm:block" />
-              <div className="flex items-center gap-1.5">
-                <Activity className="w-3.5 h-3.5" />
-                {result.totalScanned} stocks scanned
-              </div>
-              <span className="w-px h-3.5 bg-border hidden sm:block" />
-              <Link
-                href="/setups"
-                className="flex items-center gap-1.5 hover:text-accent transition-colors group"
-              >
-                <Zap className="w-3.5 h-3.5" />
-                {result.filteredCount} setups found
-                <ChevronRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-              </Link>
-
-              {isAdmin && (
-                <button
-                  onClick={runScan}
-                  disabled={isLoading}
-                  className="flex items-center gap-1.5 ml-2 px-3 py-1 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-accent/40 transition-colors disabled:opacity-40"
-                >
-                  <RefreshCw className="w-3 h-3" />
-                  Rescan
-                </button>
-              )}
-            </div>
-          )}
+      {/* ── Tabs ────────────────────────────────────────────────────────────── */}
+      <section className="max-w-6xl mx-auto w-full px-4 sm:px-6 pb-6">
+        <div className="flex items-center gap-1 p-1 rounded-xl border border-border bg-surface w-fit mx-auto">
+          <button
+            onClick={() => { setActiveTab("daily"); setShowAllCandidates(false); }}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+              activeTab === "daily"
+                ? "bg-accent/15 border border-accent/30 text-accent"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Zap className="w-3.5 h-3.5" />
+            Daily Scan
+            {dailyStatus === "done" && dailyResult && (
+              <span className="text-[10px] bg-surface-elevated px-1.5 py-0.5 rounded-full font-normal">
+                {dailyResult.filteredCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => { setActiveTab("custom"); setShowAllCandidates(false); }}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+              activeTab === "custom"
+                ? "bg-accent/15 border border-accent/30 text-accent"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <ListFilter className="w-3.5 h-3.5" />
+            My List
+            {customStatus === "done" && customResult && (
+              <span className="text-[10px] bg-surface-elevated px-1.5 py-0.5 rounded-full font-normal">
+                {customResult.filteredCount}
+              </span>
+            )}
+          </button>
         </div>
       </section>
 
       {/* ── Content ─────────────────────────────────────────────────────────── */}
       <section className="max-w-6xl mx-auto w-full px-4 sm:px-6 pb-16 flex-1">
 
-        {/* Scanning / Analyzing */}
-        {isLoading && <ScanningView status={status} progress={progress} />}
-
-        {/* Error */}
-        {status === "error" && (
-          <div className="flex flex-col items-center gap-5 py-16">
-            <div className="p-3 rounded-full border border-bear/30 bg-bear/10">
-              <AlertCircle className="w-6 h-6 text-bear" />
-            </div>
-            <div className="text-center">
-              <p className="font-semibold text-foreground">Scan failed</p>
-              <p className="text-sm text-muted-foreground mt-1 max-w-sm">{error}</p>
-            </div>
-            <button
-              onClick={runScan}
-              className="px-4 py-2 text-sm font-medium rounded-xl border border-border text-muted-foreground hover:text-foreground hover:border-accent/40 transition-colors"
-            >
-              Try Again
-            </button>
-          </div>
-        )}
-
-        {/* Results */}
-        {status === "done" && picks.length > 0 && (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 animate-fade-in">
-              {picks.map((pick, i) => (
-                <PickCard key={pick.ticker} pick={pick} rank={i + 1} />
-              ))}
-            </div>
-
-            {/* Check more stocks */}
-            {moreCandidates.length > 0 && (
-              <div className="mt-8 animate-fade-in">
-                <button
-                  onClick={() => setShowAllCandidates((v) => !v)}
-                  className="flex items-center gap-2 mb-4 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors group"
-                >
-                  <ChevronRight
-                    className={cn(
-                      "w-4 h-4 transition-transform",
-                      showAllCandidates ? "rotate-90" : ""
-                    )}
-                  />
-                  {showAllCandidates ? "Hide" : `Check more stocks`}
-                  <span className="text-xs font-normal bg-surface-elevated px-1.5 py-0.5 rounded-full">
-                    {moreCandidates.length} setups
-                  </span>
-                </button>
-
-                {showAllCandidates && (
-                  <div className="flex flex-col gap-1.5">
-                    {/* Column headers */}
-                    <div className="flex items-center gap-3 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      <span className="w-28 shrink-0">Ticker</span>
-                      <span className="flex-1 hidden sm:block">Pattern</span>
-                      <span className="w-24 shrink-0">Score</span>
-                      <span className="w-14 shrink-0 text-right">5d</span>
-                      <span className="w-24 shrink-0" />
-                    </div>
-                    {moreCandidates.map((c) => (
-                      <CandidateRow key={c.ticker} candidate={c} />
-                    ))}
-                  </div>
-                )}
+        {/* Daily tab: meta strip */}
+        {activeTab === "daily" && dailyStatus === "done" && dailyResult && (
+          <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-muted-foreground mb-6">
+            {dailyPickedAt && (
+              <div className="flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5" />
+                Updated {timeAgo(dailyPickedAt)}
               </div>
             )}
-          </>
-        )}
-
-        {/* Initial loading (checking cache) */}
-        {status === "idle" && (
-          <div className="flex flex-col items-center gap-4 py-16 text-muted-foreground">
-            <Loader2 className="w-8 h-8 animate-spin" />
-            <p className="text-sm">Loading…</p>
-          </div>
-        )}
-
-        {/* No picks yet — scan runs automatically after market close */}
-        {(status as string) === "empty" && (
-          <div className="flex flex-col items-center gap-5 py-16">
-            <div className="p-3 rounded-full border border-accent/30 bg-accent/10">
-              <Clock className="w-6 h-6 text-accent" />
+            <span className="w-px h-3.5 bg-border hidden sm:block" />
+            <div className="flex items-center gap-1.5">
+              <Activity className="w-3.5 h-3.5" />
+              {dailyResult.totalScanned} stocks scanned
             </div>
-            <div className="text-center">
-              <p className="font-semibold text-foreground">Picks update after market close</p>
-              <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-                Our AI scans 800+ stocks every weekday at 6 PM ET. Check back after market close for today&apos;s top setups.
-              </p>
-            </div>
+            <span className="w-px h-3.5 bg-border hidden sm:block" />
+            <Link href="/setups" className="flex items-center gap-1.5 hover:text-accent transition-colors group">
+              <Zap className="w-3.5 h-3.5" />
+              {dailyResult.filteredCount} setups found
+              <ChevronRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </Link>
             {isAdmin && (
               <button
-                onClick={runScan}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-accent/40 bg-accent/10 text-accent text-sm font-semibold hover:bg-accent/20 transition-colors"
+                onClick={runDailyScan}
+                disabled={isLoading}
+                className="flex items-center gap-1.5 ml-2 px-3 py-1 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-accent/40 transition-colors disabled:opacity-40"
               >
-                <RefreshCw className="w-4 h-4" />
-                Run Scan Now
+                <RefreshCw className="w-3 h-3" />
+                Rescan
               </button>
             )}
           </div>
         )}
 
-        {/* AI Performance strip */}
-        {status === "done" && trackStats && (
+        {/* My List tab: input area */}
+        {activeTab === "custom" && (
+          <div className="mb-6 rounded-xl border border-border bg-surface p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <ListFilter className="w-4 h-4 text-accent" />
+              <span className="text-sm font-semibold text-foreground">Analyze My List</span>
+              <span className="text-xs text-muted-foreground">— paste your TradingView watchlist</span>
+            </div>
+            <textarea
+              value={myListInput}
+              onChange={(e) => setMyListInput(e.target.value)}
+              placeholder={"AAPL\nMSFT\nNVDA\nor paste TradingView export (NASDAQ:AAPL format works too)"}
+              className="w-full h-28 px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground/50 font-mono resize-none focus:outline-none focus:border-accent/50"
+            />
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-muted-foreground">
+                {parseTickers(myListInput).length > 0
+                  ? `${parseTickers(myListInput).length} tickers detected`
+                  : "One ticker per line, or comma/space separated"}
+              </span>
+              <button
+                onClick={handleRunMyList}
+                disabled={parseTickers(myListInput).length === 0 || isLoading}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg border border-accent/40 bg-accent/10 text-accent text-xs font-semibold hover:bg-accent/20 transition-colors disabled:opacity-40"
+              >
+                <RefreshCw className={cn("w-3.5 h-3.5", isLoading && "animate-spin")} />
+                {isLoading ? "Scanning…" : "Run Analysis"}
+              </button>
+            </div>
+            {customStatus === "done" && customResult && (
+              <p className="text-xs text-muted-foreground pt-1 border-t border-border/50">
+                {customResult.totalScanned} stocks scanned · {customResult.filteredCount} setups found
+                {customPickedAt && <> · {timeAgo(customPickedAt)}</>}
+              </p>
+            )}
+          </div>
+        )}
+
+        {renderResults()}
+
+        {/* AI Performance strip — daily tab only */}
+        {activeTab === "daily" && dailyStatus === "done" && trackStats && (
           <div className="mt-8 rounded-2xl border border-border bg-surface/40 px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-xl bg-accent/10 border border-accent/20 shrink-0">
