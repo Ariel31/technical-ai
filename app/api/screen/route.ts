@@ -146,8 +146,8 @@ export async function POST(_req: Request) {
         // Assign RS percentile ranks
         assignRSRanks(deepCandidates);
 
-        const allCandidates = getTopCandidates(deepCandidates, 50, 1.5); // wider — for /setups page
-        const aiCandidates  = getTopCandidates(deepCandidates, AI_CANDIDATE_COUNT, 1.8);
+        const allCandidates = getTopCandidates(deepCandidates, 50, 2.0); // RR ≥ 2.0 swing-trade quality
+        const aiCandidates  = getTopCandidates(deepCandidates, AI_CANDIDATE_COUNT, 2.0);
 
         // ── Phase 3: AI picks top 3 ───────────────────────────────────────────
         send({

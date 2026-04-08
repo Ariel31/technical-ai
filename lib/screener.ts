@@ -658,13 +658,14 @@ export function assignRSRanks(candidates: ScreenerCandidate[]): void {
 export function getTopCandidates(
   candidates: ScreenerCandidate[],
   topN = 12,
-  minRR = 1.8
+  minRR = 2.0
 ): ScreenerCandidate[] {
   return [...candidates]
     .filter((c) =>
       c.riskReward >= minRR &&
       c.pattern !== "none" &&                             // must have a real setup
-      (c.targetLevel - c.entry) / c.entry * 100 >= 5     // at least 5% upside
+      c.consolidationDays >= 8 &&                         // minimum swing-trade setup duration
+      (c.targetLevel - c.entry) / c.entry * 100 >= 8     // at least 8% upside for swing trades
     )
     .sort((a, b) => b.score - a.score)
     .slice(0, topN);
@@ -771,8 +772,8 @@ export function computeReversalIndicators(
   const riskPerShare = entry - stopLevel;
   const riskReward   = riskPerShare > 0 ? (targetLevel - entry) / riskPerShare : 0;
 
-  if (riskReward < 1.8) return null;
-  if ((targetLevel - entry) / entry * 100 < 5) return null;
+  if (riskReward < 2.0) return null;
+  if ((targetLevel - entry) / entry * 100 < 8) return null;
 
   const trendAlignment =
     (price > sm20  ? 25 : 0) +

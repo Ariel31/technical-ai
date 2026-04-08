@@ -415,7 +415,7 @@ function AppContent() {
 
           {/* Analysis Sidebar */}
           {analysis && status === "done" && (
-            <aside className="w-80 shrink-0 border-l border-border overflow-y-auto bg-surface/50 backdrop-blur-sm p-4 animate-fade-in">
+            <aside className="w-80 shrink-0 border-l border-border overflow-y-auto bg-surface/50 backdrop-blur-sm p-4 pb-16 animate-fade-in">
               <AnalysisPanel
                 analysis={analysis}
                 activePatternIds={activePatternIds}

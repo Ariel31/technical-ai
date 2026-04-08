@@ -203,12 +203,12 @@ const responseSchema = {
       type: SchemaType.OBJECT,
       description: "Best trade setup based on all identified patterns. Omit if no clear entry exists.",
       properties: {
-        hasEntry:        { type: SchemaType.BOOLEAN, description: "True if a clear, actionable setup exists right now" },
+        hasEntry:        { type: SchemaType.BOOLEAN, description: "True only if a clear swing trade setup exists with R/R >= 2.0 and a well-defined stop-loss. False if R/R is below 2.0 or setup is unclear." },
         direction:       { type: SchemaType.STRING, enum: ["long", "short"] },
         entryPrice:      { type: SchemaType.NUMBER, description: "Ideal entry price (limit or stop-limit)" },
         stopLoss:        { type: SchemaType.NUMBER, description: "Stop-loss price" },
         target:          { type: SchemaType.NUMBER, description: "First price target" },
-        riskRewardRatio: { type: SchemaType.NUMBER, description: "Reward divided by risk (e.g. 2.5)" },
+        riskRewardRatio: { type: SchemaType.NUMBER, description: "Reward divided by risk — must be 2.0 or higher to qualify as a valid entry (e.g. 2.5 means risk 1 to make 2.5)" },
         rationale:       { type: SchemaType.STRING, description: "One sentence explaining the setup" },
       },
       required: ["hasEntry", "direction", "entryPrice", "stopLoss", "target", "riskRewardRatio", "rationale"],
@@ -337,7 +337,7 @@ Support lines: color="${bullishColor}" style=dashed | Resistance: color="${beari
 
 RULES: All timestamps must be from the data above. Prices must match data range. Only flag genuine patterns.
 
-entrySignal: Based on ALL patterns combined, identify the single best trade setup available RIGHT NOW. Set hasEntry=true only if there is a clear, confluent setup with defined risk. Calculate riskRewardRatio = (target - entryPrice) / (entryPrice - stopLoss) for longs, or (entryPrice - target) / (stopLoss - entryPrice) for shorts. If no clean setup exists, set hasEntry=false but still populate the other fields with the most likely scenario.
+entrySignal: Based on ALL patterns combined, identify the single best SWING TRADE setup available RIGHT NOW (medium to long timeframe — targeting moves that play out over days to weeks, not intraday). Set hasEntry=true ONLY if ALL of the following conditions are met: (1) there is a clear, confluent pattern with defined risk, (2) the risk/reward ratio is AT LEAST 2:1 (riskRewardRatio >= 2.0), and (3) there is a logical, well-defined stop-loss level. Calculate riskRewardRatio = (target - entryPrice) / (entryPrice - stopLoss) for longs, or (entryPrice - target) / (stopLoss - entryPrice) for shorts. If the best available setup has R/R below 2.0, set hasEntry=false — do not force a low-quality entry. If no clean setup exists, set hasEntry=false but still populate the other fields with the most likely swing trade scenario if one materializes.
 
 IMPORTANT: Respond with ONLY a raw JSON object. No markdown, no code fences, no explanation — just the JSON.`;
 }

@@ -80,12 +80,12 @@ function buildPrompt(candidates: ScreenerCandidate[], regime: MarketRegime): str
     note:        regime.note,
   };
 
-  return `You are a professional swing trader and portfolio manager. Select the 3 best trade setups from the candidates below.
+  return `You are a professional swing trader and portfolio manager. Select the 3 best SWING TRADE setups from the candidates below (targeting moves that play out over days to weeks, not intraday).
 
 MARKET REGIME:
 ${JSON.stringify(regimeSummary, null, 2)}
 
-SCREENED CANDIDATES (${candidates.length} stocks, pre-filtered RR ≥ 1.8, sorted by weighted score):
+SCREENED CANDIDATES (${candidates.length} stocks, sorted by weighted score):
 ${JSON.stringify(candidateData, null, 2)}
 
 FIELD GLOSSARY:
@@ -103,7 +103,7 @@ SELECTION RULES:
 3. In a downtrend regime you MAY include 1 SHORT; in uptrend focus on longs
 4. Avoid duplicating patterns — pick diverse setups across different sectors/patterns
 5. potentialReturn = (target − entry) / entry × 100 for longs (always positive %)
-6. riskReward = (target − entry) / (entry − stopLoss)
+6. riskReward = (target − entry) / (entry − stopLoss) — MINIMUM 2.0 required. Do not select a setup with riskReward < 2.0. If you need to adjust entry/stop/target to achieve 2.0, do so (within ±5% of algorithmic levels).
 7. confidence: score 70–85 for confirmed patterns; ≥ 85 requires volume confirmation + coiling + near breakout; 60–69 for weaker setups — do NOT reflexively assign low confidence just due to market regime
 8. triggers[]: 3–5 strings from the actual data, e.g.:
    "RSI 58 momentum zone", "Volume 2.1× 50d avg", "Volatility squeeze",

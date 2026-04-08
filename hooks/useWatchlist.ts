@@ -104,6 +104,7 @@ export function useWatchlist() {
                 stopPrice:    sig?.hasEntry ? sig.stopLoss : 0,
                 targetPrice:  sig?.hasEntry ? sig.target : 0,
                 rationale:    sig?.rationale ?? null,
+                direction:    sig?.hasEntry ? sig.direction : "long",
               }),
             }).catch(() => {});
             return;
@@ -230,6 +231,7 @@ export function useWatchlist() {
                       stopPrice:    sig?.hasEntry ? sig.stopLoss : 0,
                       targetPrice:  sig?.hasEntry ? sig.target : 0,
                       rationale:    sig?.rationale ?? null,
+                      direction:    sig?.hasEntry ? sig.direction : "long",
                     }),
                   }).catch(() => {});
                 }

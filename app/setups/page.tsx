@@ -199,7 +199,7 @@ export default function SetupsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const candidates = (result?.allCandidates ?? []).filter((c) => c.score >= 70);
+  const candidates = result?.allCandidates ?? [];
   const patterns = useMemo(() => uniquePatterns(candidates), [candidates]);
 
   const sorted = useMemo(() => {
