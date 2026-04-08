@@ -4,7 +4,7 @@ import {
   type Schema,
 } from "@google/generative-ai";
 import { AI_MODELS } from "./ai-config";
-import type { MarketRegime, ScreenerCandidate, ScreenerPick } from "./types";
+import type { MarketRegime, MarketSentiment, ScreenerCandidate, ScreenerPick } from "./types";
 
 // ─── Response schema (unchanged — ScreenerPick shape) ────────────────────────
 
@@ -46,7 +46,7 @@ const screenerSchema = {
 
 // ─── Prompt builder — structured JSON input ───────────────────────────────────
 
-function buildPrompt(candidates: ScreenerCandidate[], regime: MarketRegime): string {
+function buildPrompt(candidates: ScreenerCandidate[], regime: MarketRegime, sentiment?: MarketSentiment): string {
   const candidateData = candidates.map((c) => ({
     ticker:               c.ticker,
     name:                 c.name,
@@ -80,8 +80,21 @@ function buildPrompt(candidates: ScreenerCandidate[], regime: MarketRegime): str
     note:        regime.note,
   };
 
-  return `You are a professional swing trader and portfolio manager. Select the 3 best SWING TRADE setups from the candidates below (targeting moves that play out over days to weeks, not intraday).
+  const sentimentBlock = sentiment ? `
+MARKET SENTIMENT (computed at scan time):
+Label: ${sentiment.label} (score ${sentiment.score > 0 ? "+" : ""}${sentiment.score} / +3 max)
+- SPY ${regimeSummary.spyPrice} — ${sentiment.spyVs200ma} 200-day MA
+- VIX: ${sentiment.vix} (${sentiment.vix > 25 ? "high fear — bearish" : sentiment.vix < 18 ? "low fear — bullish" : "moderate — neutral"})
+- Advance/Decline ratio: ${sentiment.adRatio} (${sentiment.adRatio > 1.2 ? "more stocks advancing — bullish" : sentiment.adRatio < 0.8 ? "more stocks declining — bearish" : "balanced — neutral"})
 
+Adjust confidence scores to reflect this environment:
+- In Bearish conditions: reduce confidence on long breakout setups; increase confidence on short setups and high-RS defensive longs.
+- In Bullish conditions: reduce confidence on short setups; increase confidence on long momentum and breakout setups.
+- In Neutral conditions: score the chart on its own merit.
+` : "";
+
+  return `You are a professional swing trader and portfolio manager. Select the 3 best SWING TRADE setups from the candidates below (targeting moves that play out over days to weeks, not intraday).
+${sentimentBlock}
 MARKET REGIME:
 ${JSON.stringify(regimeSummary, null, 2)}
 
@@ -117,6 +130,7 @@ Return exactly 3 picks.`;
 export async function analyzeScreenerCandidates(
   candidates: ScreenerCandidate[],
   regime: MarketRegime,
+  sentiment?: MarketSentiment,
   promptAddendum = "",
 ): Promise<ScreenerPick[]> {
   if (candidates.length === 0) {
@@ -133,7 +147,7 @@ export async function analyzeScreenerCandidates(
     },
   });
 
-  const prompt = buildPrompt(candidates, regime) + promptAddendum;
+  const prompt = buildPrompt(candidates, regime, sentiment) + promptAddendum;
   const result = await model.generateContent(prompt);
   const raw = result.response.text();
   const cleaned = raw

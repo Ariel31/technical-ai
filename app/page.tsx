@@ -25,7 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
-import type { ScreenerPick, ScreenerResult, ScreenerStatus, TrackRecordStats } from "@/lib/types";
+import type { MarketSentiment, ScreenerPick, ScreenerResult, ScreenerStatus, TrackRecordStats } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { addToDraftStorage } from "@/hooks/useDraft";
 
@@ -174,6 +174,74 @@ function useScan() {
   };
 }
 
+// ─── Sentiment banner ─────────────────────────────────────────────────────────
+
+function SentimentBanner({ sentiment }: { sentiment: MarketSentiment }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const config = {
+    Bearish: {
+      bar: "bg-rose-950/50 border-rose-800/40 text-rose-300",
+      dot: "bg-rose-400",
+      detail: "text-rose-400/80",
+    },
+    Neutral: {
+      bar: "bg-surface border-border text-muted-foreground",
+      dot: "bg-muted-foreground",
+      detail: "text-muted-foreground/70",
+    },
+    Bullish: {
+      bar: "bg-emerald-950/50 border-emerald-800/40 text-emerald-300",
+      dot: "bg-emerald-400",
+      detail: "text-emerald-400/80",
+    },
+  }[sentiment.label];
+
+  const spyDesc  = `SPY ${sentiment.spyVs200ma} 200MA`;
+  const vixDesc  = `VIX ${sentiment.vix}`;
+  const adDesc   = sentiment.adRatio > 1.2
+    ? "More stocks advancing"
+    : sentiment.adRatio < 0.8
+    ? "More stocks declining"
+    : "Balanced advance/decline";
+
+  const summary = `${sentiment.label} market · ${spyDesc} · ${vixDesc} · ${adDesc}`;
+
+  return (
+    <div
+      className={cn("rounded-xl border px-4 py-2 mb-5 cursor-pointer select-none transition-colors", config.bar)}
+      onClick={() => setExpanded((v) => !v)}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <span className={cn("w-2 h-2 rounded-full shrink-0", config.dot)} />
+          {summary}
+        </div>
+        <span className={cn("text-xs shrink-0", config.detail)}>
+          {expanded ? "▲" : "▼"}
+        </span>
+      </div>
+
+      {expanded && (
+        <div className={cn("mt-2 pt-2 border-t border-current/20 grid grid-cols-3 gap-3 text-xs", config.detail)}>
+          <div>
+            <p className="font-semibold uppercase tracking-wider opacity-70 mb-0.5">SPY vs 200MA</p>
+            <p>{sentiment.spyVs200ma === "above" ? "✓ Above — bullish" : sentiment.spyVs200ma === "near" ? "~ Near — neutral" : "✗ Below — bearish"}</p>
+          </div>
+          <div>
+            <p className="font-semibold uppercase tracking-wider opacity-70 mb-0.5">VIX</p>
+            <p>{sentiment.vix} — {sentiment.vix > 25 ? "High fear" : sentiment.vix < 18 ? "Low fear" : "Moderate"}</p>
+          </div>
+          <div>
+            <p className="font-semibold uppercase tracking-wider opacity-70 mb-0.5">Advance / Decline</p>
+            <p>{sentiment.adRatio.toFixed(2)} ratio — {adDesc}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Scanning progress UI ─────────────────────────────────────────────────────
 
 const STEPS = [
@@ -295,8 +363,8 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
           </p>
         </div>
 
-        {/* Confidence */}
-        <div className="flex flex-col items-end gap-0.5 shrink-0">
+        {/* Confidence + R/R */}
+        <div className="flex flex-col items-end gap-1 shrink-0">
           <span className={cn("text-2xl font-bold font-mono leading-none", confColor)}>
             {pick.confidence}%
           </span>
@@ -307,6 +375,16 @@ function PickCard({ pick, rank }: { pick: ScreenerPick; rank: number }) {
             />
           </div>
           <span className="text-[10px] text-muted-foreground tracking-wider uppercase">confidence</span>
+          {pick.riskReward > 0 && (
+            <span className={cn(
+              "text-[10px] font-semibold px-2 py-0.5 rounded border",
+              pick.riskReward >= 3
+                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                : "bg-surface-elevated border-border text-muted-foreground"
+            )}>
+              R/R {pick.riskReward.toFixed(1)}:1
+            </span>
+          )}
         </div>
       </div>
 
@@ -520,8 +598,22 @@ export default function LandingPage() {
   const error    = activeTab === "daily" ? dailyError    : customError;
 
   const isLoading = status === "scanning" || status === "analyzing";
-  const picks = result?.picks?.slice(0, 3) ?? [];
   const [showAllCandidates, setShowAllCandidates] = useState(false);
+  const [suppressionOverride, setSuppressionOverride] = useState(false);
+
+  const sentiment = result?.sentiment;
+  const extremeSuppression = !suppressionOverride && sentiment && (sentiment.score === -3 || sentiment.score === 3);
+  const rawPicks = result?.picks?.slice(0, 3) ?? [];
+  const picks = extremeSuppression
+    ? rawPicks.filter((p) =>
+        sentiment!.score === -3 ? p.direction === "short" : p.direction === "long"
+      ).concat(
+        // if suppression yields zero, fall back to all
+        rawPicks.filter((p) =>
+          sentiment!.score === -3 ? p.direction === "short" : p.direction === "long"
+        ).length === 0 ? rawPicks : []
+      ).slice(0, 3)
+    : rawPicks;
   const topTickers = new Set(picks.map((p) => p.ticker));
   const moreCandidates = (result?.allCandidates ?? []).filter((c) => !topTickers.has(c.ticker));
 
@@ -579,6 +671,31 @@ export default function LandingPage() {
 
     if (status === "done" && picks.length > 0) return (
       <>
+        {/* Sentiment banner */}
+        {sentiment && <SentimentBanner sentiment={sentiment} />}
+
+        {/* Suppression notice */}
+        {extremeSuppression && (
+          <div className={cn(
+            "flex items-center justify-between gap-3 rounded-lg border px-3 py-2 mb-4 text-xs",
+            sentiment!.score === -3
+              ? "border-rose-800/40 bg-rose-950/30 text-rose-400"
+              : "border-emerald-800/40 bg-emerald-950/30 text-emerald-400"
+          )}>
+            <span>
+              {sentiment!.score === -3
+                ? "Bearish market — Top Picks showing short setups and high-RS longs only"
+                : "Bullish market — Top Picks showing long setups only"}
+            </span>
+            <button
+              onClick={() => setSuppressionOverride(true)}
+              className="shrink-0 underline underline-offset-2 hover:opacity-80 transition-opacity"
+            >
+              Show all anyway
+            </button>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 animate-fade-in">
           {picks.map((pick, i) => (
             <PickCard key={pick.ticker} pick={pick} rank={i + 1} />

@@ -332,9 +332,25 @@ export interface ScreenerResult {
   filteredCount: number;
   picks: ScreenerPick[];
   allCandidates?: CandidateSummary[];
+  sentiment?: MarketSentiment;
 }
 
 export type ScreenerStatus = "idle" | "scanning" | "analyzing" | "done" | "error";
+
+// ─── Market Sentiment ───────────────────────────────────────────────────────────
+
+export type SentimentLabel = "Bearish" | "Neutral" | "Bullish";
+
+export interface MarketSentiment {
+  label: SentimentLabel;
+  score: number;          // -3 to +3
+  spySignal: number;      // -1 | 0 | +1
+  vixSignal: number;      // -1 | 0 | +1
+  adSignal: number;       // -1 | 0 | +1
+  vix: number;
+  adRatio: number;        // advancing / declining
+  spyVs200ma: "above" | "below" | "near";
+}
 
 // ─── Setup Tracking Types ───────────────────────────────────────────────────────
 

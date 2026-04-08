@@ -11,7 +11,7 @@ import {
 } from "@/lib/screener";
 import { analyzeScreenerCandidates } from "@/lib/screener-ai";
 import { generateSignals } from "@/lib/pipeline";
-import type { CandidateSummary, MarketRegime, ScreenerCandidate } from "@/lib/types";
+import type { CandidateSummary, MarketRegime, MarketSentiment, ScreenerCandidate } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,7 +66,7 @@ export async function POST(req: Request) {
       };
 
       try {
-        // ── Phase 1: Market regime (SPY) + begin scan notification ────────────
+        // ── Phase 1: Market regime (SPY) + VIX + begin scan notification ──────
         send({
           type: "progress",
           phase: "scanning",
@@ -75,11 +75,21 @@ export async function POST(req: Request) {
           totalSteps: 3,
         });
 
-        // Fetch SPY in parallel with the first OHLCV batch
+        // Fetch SPY and VIX in parallel
         let regime: MarketRegime | null = null;
+        let vixPrice = 20; // default neutral
         try {
-          const spyData = await fetchStockData({ ticker: "SPY", timeframe: "1d", bars: 200 });
-          regime = computeMarketRegime(spyData.bars);
+          const [spyData, vixData] = await Promise.allSettled([
+            fetchStockData({ ticker: "SPY", timeframe: "1d", bars: 200 }),
+            fetchStockData({ ticker: "^VIX", timeframe: "1d", bars: 5 }),
+          ]);
+          if (spyData.status === "fulfilled") {
+            regime = computeMarketRegime(spyData.value.bars);
+          }
+          if (vixData.status === "fulfilled") {
+            const bars = vixData.value.bars;
+            vixPrice = bars[bars.length - 1]?.close ?? 20;
+          }
           if (regime) {
             send({
               type: "progress",
@@ -90,7 +100,7 @@ export async function POST(req: Request) {
             });
           }
         } catch (err) {
-          console.warn("[Screener] SPY fetch failed:", err);
+          console.warn("[Screener] SPY/VIX fetch failed:", err);
         }
 
         const spyReturn60d = regime?.return60d ?? 0;
@@ -99,6 +109,9 @@ export async function POST(req: Request) {
         const deepCandidates: ScreenerCandidate[] = [];
         // Keep last 90 bars per passing ticker for mini charts
         const barsMap = new Map<string, Array<{ t: number; o: number; h: number; l: number; c: number }>>();
+        // Track advancing/declining for A/D ratio
+        let advancing = 0;
+        let declining = 0;
 
         const batches: string[][] = [];
         for (let i = 0; i < universe.length; i += OHLCV_BATCH_SIZE) {
@@ -125,6 +138,13 @@ export async function POST(req: Request) {
           for (let j = 0; j < results.length; j++) {
             const r = results[j];
             if (r.status === "fulfilled") {
+              // Count advancing vs declining for A/D ratio (from raw OHLCV, before filters)
+              const bars = r.value.bars;
+              const lastClose = bars[bars.length - 1]?.close ?? 0;
+              const prev5Close = bars[bars.length - 6]?.close ?? lastClose;
+              if (lastClose > prev5Close) advancing++;
+              else if (lastClose < prev5Close) declining++;
+
               const ind = computeIndicators(
                 batches[i][j],
                 r.value.meta.name,
@@ -157,6 +177,30 @@ export async function POST(req: Request) {
 
         console.log(`[Screener] Deep analysis complete: ${universe.length} fetched, ${deepCandidates.length} passed filters`);
 
+        // ── Compute market sentiment ──────────────────────────────────────────
+        const spyVs200maDiff = regime
+          ? Math.abs(regime.spyPrice - regime.spySma200) / regime.spySma200
+          : 0;
+        const spyVs200ma =
+          spyVs200maDiff < 0.01 ? "near" :
+          (regime?.aboveSma200 ? "above" : "below");
+        const spySignal = spyVs200ma === "near" ? 0 : spyVs200ma === "above" ? 1 : -1;
+        const vixSignal = vixPrice > 25 ? -1 : vixPrice < 18 ? 1 : 0;
+        const adRatio   = declining > 0 ? advancing / declining : advancing > 0 ? 2 : 1;
+        const adSignal  = adRatio < 0.8 ? -1 : adRatio > 1.2 ? 1 : 0;
+        const sentimentScore = spySignal + vixSignal + adSignal;
+        const sentimentLabel =
+          sentimentScore <= -1 ? "Bearish" :
+          sentimentScore >= 1  ? "Bullish" : "Neutral";
+        const sentiment: MarketSentiment = {
+          label: sentimentLabel,
+          score: sentimentScore,
+          spySignal, vixSignal, adSignal,
+          vix: +vixPrice.toFixed(1),
+          adRatio: +adRatio.toFixed(2),
+          spyVs200ma,
+        };
+
         // Assign RS percentile ranks
         assignRSRanks(deepCandidates);
 
@@ -181,7 +225,7 @@ export async function POST(req: Request) {
           note: "Market regime unavailable",
         };
 
-        const rawPicks = await analyzeScreenerCandidates(aiCandidates, effectiveRegime);
+        const rawPicks = await analyzeScreenerCandidates(aiCandidates, effectiveRegime, sentiment);
 
         // Merge pipeline scores + algorithmic signals + pattern name into each AI pick
         const candidateMap = new Map(aiCandidates.map((c) => [c.ticker, c]));
@@ -236,6 +280,7 @@ export async function POST(req: Request) {
           filteredCount: allCandidates.length,
           picks,
           allCandidates: candidateSummaries,
+          sentiment,
         };
 
         send({ type: "done", result: screenerResult });

@@ -15,9 +15,72 @@ import {
   FileStack,
   Check,
 } from "lucide-react";
-import type { CandidateSummary, ScreenerResult } from "@/lib/types";
+import type { CandidateSummary, MarketSentiment, ScreenerResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { addToDraftStorage } from "@/hooks/useDraft";
+
+// ─── Sentiment banner ─────────────────────────────────────────────────────────
+
+function SentimentBanner({ sentiment }: { sentiment: MarketSentiment }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const config = {
+    Bearish: {
+      bar: "bg-rose-950/50 border-rose-800/40 text-rose-300",
+      dot: "bg-rose-400",
+      detail: "text-rose-400/80",
+    },
+    Neutral: {
+      bar: "bg-surface border-border text-muted-foreground",
+      dot: "bg-muted-foreground",
+      detail: "text-muted-foreground/70",
+    },
+    Bullish: {
+      bar: "bg-emerald-950/50 border-emerald-800/40 text-emerald-300",
+      dot: "bg-emerald-400",
+      detail: "text-emerald-400/80",
+    },
+  }[sentiment.label];
+
+  const adDesc = sentiment.adRatio > 1.2
+    ? "More stocks advancing"
+    : sentiment.adRatio < 0.8
+    ? "More stocks declining"
+    : "Balanced advance/decline";
+
+  const summary = `${sentiment.label} market · SPY ${sentiment.spyVs200ma} 200MA · VIX ${sentiment.vix} · ${adDesc}`;
+
+  return (
+    <div
+      className={cn("rounded-xl border px-4 py-2 mb-5 cursor-pointer select-none", config.bar)}
+      onClick={() => setExpanded((v) => !v)}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <span className={cn("w-2 h-2 rounded-full shrink-0", config.dot)} />
+          {summary}
+        </div>
+        <span className={cn("text-xs shrink-0", config.detail)}>{expanded ? "▲" : "▼"}</span>
+      </div>
+      {expanded && (
+        <div className={cn("mt-2 pt-2 border-t border-current/20 grid grid-cols-3 gap-3 text-xs", config.detail)}>
+          <div>
+            <p className="font-semibold uppercase tracking-wider opacity-70 mb-0.5">SPY vs 200MA</p>
+            <p>{sentiment.spyVs200ma === "above" ? "✓ Above — bullish" : sentiment.spyVs200ma === "near" ? "~ Near — neutral" : "✗ Below — bearish"}</p>
+          </div>
+          <div>
+            <p className="font-semibold uppercase tracking-wider opacity-70 mb-0.5">VIX</p>
+            <p>{sentiment.vix} — {sentiment.vix > 25 ? "High fear" : sentiment.vix < 18 ? "Low fear" : "Moderate"}</p>
+          </div>
+          <div>
+            <p className="font-semibold uppercase tracking-wider opacity-70 mb-0.5">Advance / Decline</p>
+            <p>{sentiment.adRatio.toFixed(2)} — {adDesc}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── Sort options ─────────────────────────────────────────────────────────────
 
@@ -126,9 +189,19 @@ function CandidateCard({ c }: { c: CandidateSummary }) {
           </div>
           <p className="text-xs text-muted-foreground mt-0.5 truncate">{c.name}</p>
         </div>
-        <div className="text-right shrink-0">
+        <div className="text-right shrink-0 flex flex-col items-end gap-1">
           <p className="text-[10px] text-muted-foreground">Score</p>
           <p className="text-xl font-bold text-foreground">{Math.round(c.score)}</p>
+          {c.riskReward > 0 && (
+            <span className={cn(
+              "text-[10px] font-semibold px-2 py-0.5 rounded border",
+              c.riskReward >= 3
+                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                : "bg-surface-elevated border-border text-muted-foreground"
+            )}>
+              R/R {c.riskReward.toFixed(1)}:1
+            </span>
+          )}
         </div>
       </div>
 
@@ -185,6 +258,7 @@ export default function SetupsPage() {
   const [error, setError] = useState("");
   const [result, setResult] = useState<ScreenerResult | null>(null);
   const [pickedAt, setPickedAt] = useState<string | null>(null);
+  const sentiment: MarketSentiment | undefined = result?.sentiment;
   const [sortKey, setSortKey] = useState<SortKey>("score");
   const [patternFilter, setPatternFilter] = useState<string | null>(null);
 
@@ -296,6 +370,8 @@ export default function SetupsPage() {
         {/* Controls + grid */}
         {!loading && candidates.length > 0 && (
           <>
+            {sentiment && <SentimentBanner sentiment={sentiment} />}
+
             <div className="flex flex-wrap items-center gap-3">
               {/* Sort */}
               <div className="flex items-center gap-1.5 flex-wrap">
@@ -353,7 +429,8 @@ export default function SetupsPage() {
             </div>
 
             <p className="text-xs text-muted-foreground -mt-2">
-              Showing {sorted.length} of {candidates.length} setups
+              {result?.totalScanned ? `${result.totalScanned} stocks scanned · ` : ""}
+              {candidates.length} setups found · {sorted.length} shown (R/R ≥ 1:2)
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
