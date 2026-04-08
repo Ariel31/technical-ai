@@ -54,6 +54,8 @@ const TradingChart = forwardRef<TradingChartHandle, TradingChartProps>(function 
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const overlaySeriesRef = useRef<ISeriesApi<"Line">[]>([]);
   const keyLevelSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
+  const sma150SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const sma200SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
 
   // Refs so the timeScale subscription never closes over stale values
   const analysisRef = useRef(analysis);
@@ -276,6 +278,26 @@ const TradingChart = forwardRef<TradingChartHandle, TradingChartProps>(function 
     });
     volumeSeriesRef.current = volumeSeries;
 
+    // ── SMA 150 and SMA 200 — always visible ──────────────────────────────
+    sma150SeriesRef.current = chart.addLineSeries({
+      color: "rgba(168,85,247,0.75)",   // purple
+      lineWidth: 1,
+      lineStyle: LineStyle.Solid,
+      priceLineVisible: false,
+      lastValueVisible: true,
+      title: "SMA150",
+      crosshairMarkerVisible: false,
+    });
+    sma200SeriesRef.current = chart.addLineSeries({
+      color: "rgba(251,146,60,0.75)",   // amber
+      lineWidth: 1,
+      lineStyle: LineStyle.Solid,
+      priceLineVisible: false,
+      lastValueVisible: true,
+      title: "SMA200",
+      crosshairMarkerVisible: false,
+    });
+
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (entry) {
@@ -295,6 +317,8 @@ const TradingChart = forwardRef<TradingChartHandle, TradingChartProps>(function 
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
       keyLevelSeriesRef.current = [];
+      sma150SeriesRef.current = null;
+      sma200SeriesRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawCurvesOnCanvas]);
@@ -368,6 +392,21 @@ const TradingChart = forwardRef<TradingChartHandle, TradingChartProps>(function 
 
     candleSeriesRef.current.setData(candleData);
     volumeSeriesRef.current.setData(volumeData);
+
+    // ── SMA 150 / 200 ──────────────────────────────────────────────────────
+    const closes = bars.map((b) => b.close);
+    const sma = (period: number): LineData[] => {
+      const out: LineData[] = [];
+      for (let i = period - 1; i < bars.length; i++) {
+        let sum = 0;
+        for (let j = i - period + 1; j <= i; j++) sum += closes[j];
+        out.push({ time: bars[i].time as Time, value: +(sum / period).toFixed(4) });
+      }
+      return out;
+    };
+    sma150SeriesRef.current?.setData(sma(150));
+    sma200SeriesRef.current?.setData(sma(200));
+
     chartRef.current?.timeScale().fitContent();
   }, [bars]);
 
