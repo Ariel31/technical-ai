@@ -307,6 +307,11 @@ const TradingChart = forwardRef<TradingChartHandle, TradingChartProps>(function 
 
   }, []); // intentionally empty — reads latest state via refs
 
+  // Redraw canvas whenever setupBox changes (version committed / price updated)
+  useEffect(() => {
+    requestAnimationFrame(drawCurvesOnCanvas);
+  }, [setupBox, drawCurvesOnCanvas]);
+
   // ─── Init chart ───────────────────────────────────────────────────────────
 
   useEffect(() => {

@@ -28,4 +28,13 @@ export const AI_MODELS = {
    * Dev:  gemini-2.5-flash-lite — cheapest
    */
   screenerRanking: process.env.GEMINI_MODEL_SCREENER ?? (isDev ? "gemini-2.5-flash-lite" : "gemini-2.5-flash"),
+
+  /**
+   * Setup refinement — minimal structured edit task (no spatial reasoning).
+   * Reads one setup + one user sentence, returns a price diff JSON.
+   *
+   * Prod: gemini-2.5-flash      — fast and sufficient for this constrained task
+   * Dev:  gemini-2.5-flash-lite — cheapest
+   */
+  setupRefinement: process.env.GEMINI_MODEL_REFINEMENT ?? (isDev ? "gemini-2.5-flash-lite" : "gemini-2.5-flash"),
 } as const;

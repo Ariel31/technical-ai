@@ -137,6 +137,26 @@ export interface AnalysisResult {
   entrySignal?: EntrySignal;
 }
 
+// ─── Setup Versions ────────────────────────────────────────────────────────────
+
+export interface SetupVersion {
+  id: string;
+  setupId: string;
+  versionNumber: number;
+  source: "ai" | "user_refinement";
+  createdAt: string;
+  entryPrice: number;
+  stopPrice: number;
+  targetPrice: number;
+  rrRatio: number;
+  changedFields: string[] | null;
+  changeSummary: string | null;
+  technicalWarning: string | null;
+  userInputText: string | null;
+  isCommitted: boolean;
+  belowMinimumRr: boolean;
+}
+
 // ─── API Payloads ──────────────────────────────────────────────────────────────
 
 export interface StockDataResponse {

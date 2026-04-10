@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import React, { useState, useCallback, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { Brain, Loader2, Bookmark, BookmarkCheck, Share2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Brain, Loader2, Bookmark, BookmarkCheck, Share2 } from "lucide-react";
 import type { AnalysisResult, AppStatus, OHLCVBar, StockDataResponse } from "@/lib/types";
 import type { TradingChartHandle } from "@/components/chart/TradingChart";
 import TickerInput from "@/components/ui/TickerInput";
@@ -36,6 +36,9 @@ function AppContent() {
   const [showKeyLevels, setShowKeyLevels] = useState(true);
   const [shareToast, setShareToast] = useState<"idle" | "uploading" | "copied" | "error">("idle");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [currentSetupId, setCurrentSetupId] = useState<string | null>(null);
+  const [currentSetupStatus, setCurrentSetupStatus] = useState<string | null>(null);
+  const [committedPrices, setCommittedPrices] = useState<{ entry: number; stop: number; target: number; direction: "long" | "short" } | null>(null);
 
   const chartRef = useRef<TradingChartHandle>(null);
   const activeTickerRef = useRef<string>("");
@@ -67,6 +70,32 @@ function AppContent() {
         setBars(cached.bars);
         setMeta(cached.meta);
         applyAnalysisResult(cached.result);
+        // Sync setup so refine feature is available
+        const es = cached.result.entrySignal;
+        if (es) {
+          const primaryPattern = cached.result.patterns.find(
+            (p) => p.type !== "support" && p.type !== "resistance"
+          );
+          fetch("/api/setups", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ticker: upper,
+              companyName: cached.meta?.name ?? upper,
+              pattern: primaryPattern?.type ?? "momentum_continuation",
+              confidence: primaryPattern?.confidenceScore ?? 0,
+              entryPrice: es.hasEntry ? es.entryPrice : 0,
+              stopPrice:  es.hasEntry ? es.stopLoss   : 0,
+              targetPrice: es.hasEntry ? es.target    : 0,
+              rationale: es.rationale ?? null,
+              direction: es.direction,
+            }),
+          })
+            .then(() => fetchSetupForTicker(upper))
+            .catch(() => fetchSetupForTicker(upper));
+        } else {
+          fetchSetupForTicker(upper);
+        }
       } else {
         handleAnalyze(upper);
       }
@@ -92,6 +121,16 @@ function AppContent() {
     setStatus("done");
   }
 
+  function fetchSetupForTicker(t: string) {
+    fetch(`/api/setups?ticker=${encodeURIComponent(t)}`)
+      .then((r) => r.json())
+      .then((rows: { id: string; status: string }[]) => {
+        setCurrentSetupId(rows[0]?.id ?? null);
+        setCurrentSetupStatus(rows[0]?.status ?? null);
+      })
+      .catch(() => { /* non-fatal */ });
+  }
+
   // ── Main analysis flow ────────────────────────────────────────────────────────
 
   const handleAnalyze = useCallback(async (inputTicker: string) => {
@@ -101,6 +140,9 @@ function AppContent() {
     setError(undefined);
     setAnalysis(null);
     setActivePatternIds(new Set());
+    setCurrentSetupId(null);
+    setCurrentSetupStatus(null);
+    setCommittedPrices(null);
 
     // Step 1: Fetch OHLCV
     setStatus("fetching_data");
@@ -168,6 +210,33 @@ function AppContent() {
       if (activeTickerRef.current !== inputTicker) return;
       applyAnalysisResult(result);
 
+      // Create/sync setup row so refine feature is available immediately
+      if (result.entrySignal) {
+        const primaryPattern = result.patterns.find(
+          (p) => p.type !== "support" && p.type !== "resistance"
+        );
+        const es = result.entrySignal;
+        fetch("/api/setups", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ticker: inputTicker,
+            companyName: stockData.meta?.name ?? inputTicker,
+            pattern: primaryPattern?.type ?? "momentum_continuation",
+            confidence: primaryPattern?.confidenceScore ?? 0,
+            entryPrice: es.hasEntry ? es.entryPrice : 0,
+            stopPrice:  es.hasEntry ? es.stopLoss   : 0,
+            targetPrice: es.hasEntry ? es.target    : 0,
+            rationale: es.rationale ?? null,
+            direction: es.direction,
+          }),
+        })
+          .then(() => fetchSetupForTicker(inputTicker))
+          .catch(() => fetchSetupForTicker(inputTicker));
+      } else {
+        fetchSetupForTicker(inputTicker);
+      }
+
     } catch (err) {
       if (activeTickerRef.current !== inputTicker) return;
       setStatus("done");
@@ -183,6 +252,9 @@ function AppContent() {
       setError(undefined);
       setAnalysis(null);
       setActivePatternIds(new Set());
+      setCurrentSetupId(null);
+      setCurrentSetupStatus(null);
+      setCommittedPrices(null);
       setStatus("fetching_data");
 
       const cached = await loadCachedAnalysis(t);
@@ -194,6 +266,31 @@ function AppContent() {
       setBars(cached.bars);
       setMeta(cached.meta);
       applyAnalysisResult(cached.result);
+      const es = cached.result.entrySignal;
+      if (es) {
+        const primaryPattern = cached.result.patterns.find(
+          (p) => p.type !== "support" && p.type !== "resistance"
+        );
+        fetch("/api/setups", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ticker: t,
+            companyName: cached.meta?.name ?? t,
+            pattern: primaryPattern?.type ?? "momentum_continuation",
+            confidence: primaryPattern?.confidenceScore ?? 0,
+            entryPrice: es.hasEntry ? es.entryPrice : 0,
+            stopPrice:  es.hasEntry ? es.stopLoss   : 0,
+            targetPrice: es.hasEntry ? es.target    : 0,
+            rationale: es.rationale ?? null,
+            direction: es.direction,
+          }),
+        })
+          .then(() => fetchSetupForTicker(t))
+          .catch(() => fetchSetupForTicker(t));
+      } else {
+        fetchSetupForTicker(t);
+      }
     },
     [loadCachedAnalysis, handleAnalyze]
   );
@@ -366,7 +463,13 @@ function AppContent() {
                   activePatternIds={activePatternIds}
                   keyLevels={analysis?.keyLevels ?? null}
                   showKeyLevels={showKeyLevels}
-                  setupBox={analysis?.entrySignal ? {
+                  setupBox={committedPrices ? {
+                    entry: committedPrices.entry,
+                    stopLoss: committedPrices.stop,
+                    target: committedPrices.target,
+                    direction: committedPrices.direction,
+                    hasEntry: true,
+                  } : analysis?.entrySignal ? {
                     entry: analysis.entrySignal.entryPrice,
                     stopLoss: analysis.entrySignal.stopLoss,
                     target: analysis.entrySignal.target,
@@ -431,6 +534,9 @@ function AppContent() {
                 onToggleKeyLevels={handleToggleKeyLevels}
                 showKeyLevels={showKeyLevels}
                 currency={meta?.currency ?? "USD"}
+                setupId={currentSetupId}
+                setupStatus={currentSetupStatus}
+                onVersionCommit={setCommittedPrices}
               />
             </aside>
           )}

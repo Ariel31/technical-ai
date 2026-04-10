@@ -189,11 +189,20 @@ export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const statusParam = url.searchParams.get("status");
+    const tickerParam = url.searchParams.get("ticker")?.toUpperCase() ?? null;
 
-    // Only return setups for tickers currently in the user's watchlist —
-    // removing a stock from the watchlist removes it from the track record too.
     let rows: Record<string, unknown>[];
-    if (statusParam) {
+
+    if (tickerParam) {
+      // Single-ticker lookup (used by refine feature) — no watchlist join needed
+      rows = await sql`
+        SELECT s.* FROM setups s
+        WHERE s.user_id = ${userId} AND s.ticker = ${tickerParam}
+        ORDER BY s.created_at DESC
+        LIMIT 1
+      ` as Record<string, unknown>[];
+    } else if (statusParam) {
+      // Track record / monitor views — watchlist join keeps the list scoped
       const statuses = statusParam.split(",").map((s) => s.trim());
       rows = await sql`
         SELECT s.* FROM setups s

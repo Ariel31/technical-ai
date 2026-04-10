@@ -1,10 +1,13 @@
 "use client";
 
-import { Brain, TrendingUp, TrendingDown, Minus, RefreshCw, ChevronDown, Crosshair, ShieldAlert, Target, TrendingDown as ShortIcon } from "lucide-react";
+import { Brain, TrendingUp, TrendingDown, Minus, RefreshCw, ChevronDown, Crosshair, Loader2, Check, Sparkles, Send, ArrowUp, ArrowDown } from "lucide-react";
 import { useState } from "react";
 import type { AnalysisResult, TechnicalPattern, EntrySignal } from "@/lib/types";
 import { cn, formatPrice } from "@/lib/utils";
 import PatternCard from "./PatternCard";
+import { useSetupVersions } from "@/hooks/useSetupVersions";
+
+type CommittedPrices = { entry: number; stop: number; target: number; direction: "long" | "short" };
 
 interface AnalysisPanelProps {
   analysis: AnalysisResult;
@@ -14,6 +17,9 @@ interface AnalysisPanelProps {
   onToggleKeyLevels: (visible: boolean) => void;
   showKeyLevels: boolean;
   currency?: string;
+  setupId?: string | null;
+  setupStatus?: string | null;
+  onVersionCommit?: (prices: CommittedPrices) => void;
 }
 
 const BIAS_CONFIG = {
@@ -37,68 +43,239 @@ const BIAS_CONFIG = {
   },
 };
 
-function EntrySignalCard({ signal, currency }: { signal: EntrySignal; currency: string }) {
-  const isLong = signal.direction === "long";
-  const color  = isLong ? "bull" : "bear";
+// Maps DB field names to short display labels for version diff badges
+const FIELD_LABELS: Record<string, string> = {
+  entry_price: "EP",
+  stop_price:  "SL",
+  target_price: "TP",
+};
+
+function EntrySignalCard({
+  signal,
+  currency,
+  setupId,
+  setupStatus,
+  onVersionCommit,
+}: {
+  signal: EntrySignal;
+  currency: string;
+  setupId?: string | null;
+  setupStatus?: string | null;
+  onVersionCommit?: (prices: CommittedPrices) => void;
+}) {
+  const isLong      = signal.direction === "long";
+  const isTriggered = setupStatus === "ACTIVE";
+  const canRefine   = !!(setupId && signal.hasEntry && signal.entryPrice > 0);
+
+  const { versions, committedVersion, isRefining, refinementError, refinementWarning, refine, commit } =
+    useSetupVersions(canRefine ? setupId! : null);
+
+  const [userInput, setUserInput] = useState("");
+
+  const displayEntry  = committedVersion?.entryPrice  ?? signal.entryPrice;
+  const displayStop   = committedVersion?.stopPrice   ?? signal.stopLoss;
+  const displayTarget = committedVersion?.targetPrice ?? signal.target;
+  const displayRr     = committedVersion?.rrRatio     ?? signal.riskRewardRatio;
+
+  const hasVersions = versions.length > 0;
+
+  async function handleRefine() {
+    if (!userInput.trim() || isRefining) return;
+    const ok = await refine(userInput.trim());
+    if (ok) setUserInput("");
+  }
+
+  function handleCommit(vId: string, v: typeof versions[number]) {
+    commit(vId);
+    onVersionCommit?.({ entry: v.entryPrice, stop: v.stopPrice, target: v.targetPrice, direction: signal.direction });
+  }
+
+  const accentLine = isLong
+    ? "from-bull/70 via-bull/20 to-transparent"
+    : "from-bear/70 via-bear/20 to-transparent";
 
   return (
     <div className={cn(
-      "rounded-xl border p-4 space-y-3",
-      isLong ? "border-bull/30 bg-bull/5" : "border-bear/30 bg-bear/5"
+      "rounded-xl border overflow-hidden",
+      isLong ? "border-bull/25" : "border-bear/25",
     )}>
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Crosshair className={cn("w-4 h-4", isLong ? "text-bull" : "text-bear")} />
-          <span className="text-sm font-bold text-foreground">Trade Setup</span>
-        </div>
-        <div className="flex items-center gap-2">
-          {signal.hasEntry ? (
-            <span className={cn(
-              "text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border",
-              isLong ? "text-bull border-bull/40 bg-bull/10" : "text-bear border-bear/40 bg-bear/10"
-            )}>
-              {isLong ? "▲ LONG" : "▼ SHORT"}
-            </span>
-          ) : (
-            <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border text-muted-foreground border-border bg-surface">
-              No Entry Yet
-            </span>
-          )}
-        </div>
-      </div>
+      {/* Top accent bar */}
+      <div className={cn("h-[2px] bg-gradient-to-r", accentLine)} />
 
-      {/* Price levels */}
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <div className="rounded-lg bg-surface/80 border border-border px-2 py-2">
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Entry</p>
-          <p className="text-sm font-mono font-bold text-foreground">{formatPrice(signal.entryPrice, currency)}</p>
-        </div>
-        <div className="rounded-lg bg-surface/80 border border-bear/20 px-2 py-2">
-          <p className="text-[10px] uppercase tracking-widest text-bear/80 mb-1">Stop</p>
-          <p className="text-sm font-mono font-bold text-bear">{formatPrice(signal.stopLoss, currency)}</p>
-        </div>
-        <div className="rounded-lg bg-surface/80 border border-bull/20 px-2 py-2">
-          <p className="text-[10px] uppercase tracking-widest text-bull/80 mb-1">Target</p>
-          <p className="text-sm font-mono font-bold text-bull">{formatPrice(signal.target, currency)}</p>
-        </div>
-      </div>
+      {/* ── Header ──────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 px-4 py-3 bg-surface/50">
+        <Crosshair className={cn("w-4 h-4 shrink-0", isLong ? "text-bull" : "text-bear")} />
+        <span className="text-sm font-bold text-foreground">Trade Setup</span>
 
-      {/* R:R ratio */}
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">Risk / Reward</span>
+        {/* AI badge — shows when refinement is available */}
+        {canRefine && (
+          <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/25 text-[10px] font-bold text-violet-400 select-none">
+            <Sparkles className="w-2.5 h-2.5" />
+            AI
+          </span>
+        )}
+
+        <div className="flex-1" />
+
+        {/* Direction badge */}
         <span className={cn(
-          "font-mono font-bold",
-          signal.riskRewardRatio >= 2 ? "text-bull" : signal.riskRewardRatio >= 1 ? "text-yellow-400" : "text-bear"
+          "text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border shrink-0",
+          signal.hasEntry
+            ? isLong
+              ? "text-bull border-bull/40 bg-bull/10"
+              : "text-bear border-bear/40 bg-bear/10"
+            : "text-muted-foreground border-border bg-surface"
         )}>
-          1 : {signal.riskRewardRatio.toFixed(1)}
+          {signal.hasEntry ? (isLong ? "▲ LONG" : "▼ SHORT") : "No Entry Yet"}
         </span>
       </div>
 
-      {/* Rationale */}
-      <p className="text-xs text-muted-foreground leading-relaxed border-t border-border/50 pt-2">
-        {signal.rationale}
-      </p>
+      {/* ── Version switcher ─────────────────────────────────────────────── */}
+      {hasVersions && (
+        <div className="flex items-center gap-1.5 px-4 py-2 border-t border-border/30 bg-surface/20 flex-wrap">
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold mr-1">
+            Version
+          </span>
+          {versions.map((v) => {
+            const isActive = v.isCommitted;
+            const diffFields = v.changedFields ?? [];
+            return (
+              <button
+                key={v.id}
+                onClick={() => !isActive && handleCommit(v.id, v)}
+                disabled={isActive}
+                title={v.changeSummary ?? (v.source === "ai" ? "AI original" : undefined)}
+                className={cn(
+                  "flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold transition-all border",
+                  isActive
+                    ? "bg-accent text-white border-accent cursor-default"
+                    : "bg-surface border-border text-muted-foreground hover:border-accent/50 hover:text-foreground active:scale-95"
+                )}
+              >
+                v{v.versionNumber}
+                {isActive && <Check className="w-2.5 h-2.5" />}
+                {/* Changed-field diff badges */}
+                {!isActive && diffFields.map((f) => {
+                  const label = FIELD_LABELS[f];
+                  if (!label) return null;
+                  // Determine direction: compare with previous version or signal
+                  const prevVersion = versions[v.versionNumber - 2];
+                  const prevVal = f === "entry_price" ? (prevVersion?.entryPrice ?? signal.entryPrice)
+                    : f === "stop_price" ? (prevVersion?.stopPrice ?? signal.stopLoss)
+                    : (prevVersion?.targetPrice ?? signal.target);
+                  const newVal = f === "entry_price" ? v.entryPrice
+                    : f === "stop_price" ? v.stopPrice
+                    : v.targetPrice;
+                  const went = newVal > prevVal ? "up" : newVal < prevVal ? "down" : null;
+                  return (
+                    <span key={f} className="flex items-center gap-0.5 text-violet-400/80">
+                      {label}
+                      {went === "up" && <ArrowUp className="w-2 h-2" />}
+                      {went === "down" && <ArrowDown className="w-2 h-2" />}
+                    </span>
+                  );
+                })}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Price levels ─────────────────────────────────────────────────── */}
+      {signal.hasEntry && (
+        <div className="px-4 py-3 space-y-2.5 border-t border-border/30">
+          <div className="grid grid-cols-3 gap-2 text-center">
+            {([
+              { label: "Entry",  value: displayEntry,  textCls: "text-foreground", borderCls: "border-border/60" },
+              { label: "Stop",   value: displayStop,   textCls: "text-bear",       borderCls: "border-bear/30"   },
+              { label: "Target", value: displayTarget, textCls: "text-bull",       borderCls: "border-bull/30"   },
+            ] as const).map(({ label, value, textCls, borderCls }) => (
+              <div
+                key={label}
+                className={cn(
+                  "rounded-lg border px-2 py-2.5 transition-all duration-300",
+                  borderCls,
+                  isRefining ? "animate-pulse bg-surface/30" : "bg-surface/70",
+                )}
+              >
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">{label}</p>
+                <p className={cn("text-base font-mono font-bold transition-opacity", textCls, isRefining && "opacity-30")}>
+                  {formatPrice(value, currency)}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-center justify-between text-xs px-0.5">
+            <span className="text-muted-foreground">Risk / Reward</span>
+            <span className={cn(
+              "font-mono font-bold text-sm transition-opacity",
+              (displayRr ?? 0) >= 2 ? "text-bull" : (displayRr ?? 0) >= 1 ? "text-yellow-400" : "text-bear",
+              isRefining && "opacity-30",
+            )}>
+              1 : {(displayRr ?? 0).toFixed(1)}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Rationale ────────────────────────────────────────────────────── */}
+      <div className="px-4 py-2.5 border-t border-border/30">
+        <p className="text-xs text-muted-foreground leading-relaxed">{signal.rationale}</p>
+      </div>
+
+      {/* ── AI prompt bar ────────────────────────────────────────────────── */}
+      {canRefine && !isTriggered && (
+        <div className="border-t border-border/30 px-3 py-2.5 bg-violet-500/[0.03]">
+          <div className={cn(
+            "flex items-center gap-2 rounded-lg border px-3 py-2 transition-all",
+            "bg-surface/80 border-border/60",
+            "focus-within:border-violet-500/50 focus-within:bg-surface focus-within:ring-1 focus-within:ring-violet-500/15",
+          )}>
+            <Sparkles className={cn(
+              "w-3.5 h-3.5 shrink-0 transition-colors",
+              isRefining ? "text-violet-400 animate-pulse" : "text-violet-500/50",
+            )} />
+            <input
+              type="text"
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value.slice(0, 500))}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleRefine(); } }}
+              placeholder={`Adjust levels… e.g. "move target to ${Math.round((displayTarget || 0) * 1.05)}"`}
+              disabled={isRefining}
+              className="flex-1 min-w-0 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/35 outline-none disabled:opacity-50"
+            />
+            <button
+              onClick={handleRefine}
+              disabled={!userInput.trim() || isRefining}
+              className={cn(
+                "flex items-center justify-center w-7 h-7 rounded-md transition-all shrink-0",
+                userInput.trim() && !isRefining
+                  ? "bg-violet-500 text-white hover:bg-violet-400 active:scale-95"
+                  : "bg-surface-elevated text-muted-foreground/30 cursor-not-allowed",
+              )}
+            >
+              {isRefining
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <Send className="w-3.5 h-3.5" />
+              }
+            </button>
+          </div>
+
+          {refinementWarning && (
+            <p className="text-[11px] text-yellow-500/80 mt-2 px-1 leading-snug">{refinementWarning}</p>
+          )}
+          {refinementError && (
+            <p className="text-[11px] text-bear/80 mt-2 px-1">{refinementError}</p>
+          )}
+        </div>
+      )}
+
+      {isTriggered && (
+        <div className="border-t border-border/30 px-4 py-2.5 bg-surface/20">
+          <p className="text-[11px] text-muted-foreground italic">Setup triggered — levels locked while in trade.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -159,6 +336,9 @@ export default function AnalysisPanel({
   onToggleKeyLevels,
   showKeyLevels,
   currency = "USD",
+  setupId,
+  setupStatus,
+  onVersionCommit,
 }: AnalysisPanelProps) {
   const [showLevels, setShowLevels] = useState(true);
   const bias = BIAS_CONFIG[analysis.overallBias];
@@ -204,7 +384,7 @@ export default function AnalysisPanel({
 
       {/* Entry Signal */}
       {analysis.entrySignal && (
-        <EntrySignalCard signal={analysis.entrySignal} currency={currency} />
+        <EntrySignalCard signal={analysis.entrySignal} currency={currency} setupId={setupId} setupStatus={setupStatus} onVersionCommit={onVersionCommit} />
       )}
 
       {/* Key Levels accordion */}
