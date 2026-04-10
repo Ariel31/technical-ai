@@ -15,6 +15,7 @@ import {
   XCircle,
   Loader2,
   BarChart2,
+  BookMarked,
 } from "lucide-react";
 import type { TrackedSetup, TrackRecordStats } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -275,6 +276,47 @@ export default function TrackRecordPage() {
             <RefreshCw className={cn("w-4 h-4", refreshing && "animate-spin")} />
             Refresh Prices
           </button>
+        </div>
+
+        {/* Source explanation banner */}
+        <div className="relative overflow-hidden rounded-2xl border border-accent/30 bg-gradient-to-br from-accent/10 via-accent/5 to-transparent px-5 py-5">
+          {/* Background glow */}
+          <div className="absolute -top-6 -right-6 w-32 h-32 rounded-full bg-accent/10 blur-2xl pointer-events-none" />
+
+          <div className="relative flex items-start gap-4">
+            <div className="p-2.5 rounded-xl bg-accent/15 border border-accent/25 shrink-0">
+              <BookMarked className="w-5 h-5 text-accent" />
+            </div>
+
+            <div className="flex-1 min-w-0 space-y-3">
+              <div className="flex items-center gap-3 flex-wrap">
+                <p className="text-lg font-bold text-foreground tracking-tight">How does this page work?</p>
+                <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-accent/20 text-accent border border-accent/30 uppercase tracking-wider">Auto-tracked</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 w-6 h-6 rounded-full bg-accent text-white text-xs font-bold flex items-center justify-center shrink-0 shadow-[0_0_8px_rgba(99,102,241,0.5)]">1</span>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    <span className="text-foreground font-semibold">Add stocks</span> to your watchlist on the{" "}
+                    <Link href="/app" className="text-accent hover:underline font-semibold">chart page</Link>
+                  </p>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 w-6 h-6 rounded-full bg-accent text-white text-xs font-bold flex items-center justify-center shrink-0 shadow-[0_0_8px_rgba(99,102,241,0.5)]">2</span>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    <span className="text-foreground font-semibold">AI scans each stock</span> for patterns, signals, and a clean entry opportunity
+                  </p>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 w-6 h-6 rounded-full bg-accent text-white text-xs font-bold flex items-center justify-center shrink-0 shadow-[0_0_8px_rgba(99,102,241,0.5)]">3</span>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    <span className="text-foreground font-semibold">Setups appear here</span> automatically — tracked until target hit, stop hit, or expiry
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Stats strip */}

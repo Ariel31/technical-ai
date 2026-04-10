@@ -77,7 +77,7 @@ function EntrySignalCard({
   const displayTarget = committedVersion?.targetPrice ?? signal.target;
   const displayRr     = committedVersion?.rrRatio     ?? signal.riskRewardRatio;
 
-  const hasVersions = versions.length > 0;
+  const hasVersions = versions.length > 1;
 
   async function handleRefine() {
     if (!userInput.trim() || isRefining) return;
@@ -109,8 +109,11 @@ function EntrySignalCard({
 
         {/* AI badge — shows when refinement is available */}
         {canRefine && (
-          <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/25 text-[10px] font-bold text-violet-400 select-none">
-            <Sparkles className="w-2.5 h-2.5" />
+          <span
+            title="Adjust entry, stop & target with AI"
+            className="flex items-center gap-1 px-2 py-1 rounded-md bg-violet-500/20 border border-violet-400/50 text-xs font-bold text-violet-300 select-none cursor-default shadow-[0_0_8px_rgba(139,92,246,0.3)]"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
             AI
           </span>
         )}
@@ -221,38 +224,50 @@ function EntrySignalCard({
 
       {/* ── Rationale ────────────────────────────────────────────────────── */}
       <div className="px-4 py-2.5 border-t border-border/30">
-        <p className="text-xs text-muted-foreground leading-relaxed">{signal.rationale}</p>
+        <ul className="space-y-2">
+          {signal.rationale
+            .split(/(?<=[.!?])\s+/)
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .map((sentence, i) => (
+              <li key={i} className="flex items-start gap-2.5">
+                <span className="mt-[7px] w-1.5 h-1.5 rounded-full bg-accent/50 shrink-0" />
+                <span className="text-sm text-foreground/75 leading-relaxed">{sentence}</span>
+              </li>
+            ))}
+        </ul>
       </div>
 
       {/* ── AI prompt bar ────────────────────────────────────────────────── */}
       {canRefine && !isTriggered && (
-        <div className="border-t border-border/30 px-3 py-2.5 bg-violet-500/[0.03]">
+        <div className="border-t border-violet-400/40 px-3 py-3 bg-violet-500/10">
+          <p className="text-[11px] font-bold text-violet-300 uppercase tracking-wider mb-2 px-0.5">Your take on this setup</p>
           <div className={cn(
-            "flex items-center gap-2 rounded-lg border px-3 py-2 transition-all",
-            "bg-surface/80 border-border/60",
-            "focus-within:border-violet-500/50 focus-within:bg-surface focus-within:ring-1 focus-within:ring-violet-500/15",
+            "flex items-start gap-2.5 rounded-lg border px-3 py-2.5 transition-all",
+            "bg-violet-950/40 border-violet-400/40",
+            "focus-within:border-violet-300/70 focus-within:ring-2 focus-within:ring-violet-400/30",
           )}>
             <Sparkles className={cn(
-              "w-3.5 h-3.5 shrink-0 transition-colors",
-              isRefining ? "text-violet-400 animate-pulse" : "text-violet-500/50",
+              "w-4 h-4 shrink-0 mt-0.5 transition-colors",
+              isRefining ? "text-violet-200 animate-pulse" : "text-violet-300",
             )} />
-            <input
-              type="text"
+            <textarea
+              rows={2}
               value={userInput}
               onChange={(e) => setUserInput(e.target.value.slice(0, 500))}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleRefine(); } }}
-              placeholder={`Adjust levels… e.g. "move target to ${Math.round((displayTarget || 0) * 1.05)}"`}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleRefine(); } }}
+              placeholder={`e.g. "I think resistance is stronger, tighten the target" or "entry feels too aggressive, pull back"`}
               disabled={isRefining}
-              className="flex-1 min-w-0 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/35 outline-none disabled:opacity-50"
+              className="flex-1 min-w-0 bg-transparent text-sm text-foreground placeholder:text-violet-300/40 outline-none disabled:opacity-50 resize-none leading-relaxed"
             />
             <button
               onClick={handleRefine}
               disabled={!userInput.trim() || isRefining}
               className={cn(
-                "flex items-center justify-center w-7 h-7 rounded-md transition-all shrink-0",
+                "flex items-center justify-center w-7 h-7 rounded-md transition-all shrink-0 self-end mb-0.5",
                 userInput.trim() && !isRefining
                   ? "bg-violet-500 text-white hover:bg-violet-400 active:scale-95"
-                  : "bg-surface-elevated text-muted-foreground/30 cursor-not-allowed",
+                  : "bg-violet-900/50 text-violet-600 cursor-not-allowed",
               )}
             >
               {isRefining
@@ -377,10 +392,19 @@ export default function AnalysisPanel({
         </div>
       </div>
 
-      {/* Summary */}
-      <div className="px-1">
-        <p className="text-sm text-muted-foreground leading-relaxed">{analysis.summary}</p>
-      </div>
+      {/* Summary — split into scannable bullets */}
+      <ul className="space-y-2 px-1">
+        {analysis.summary
+          .split(/(?<=[.!?])\s+/)
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .map((sentence, i) => (
+            <li key={i} className="flex items-start gap-2.5">
+              <span className="mt-[7px] w-1.5 h-1.5 rounded-full bg-accent/50 shrink-0" />
+              <span className="text-sm text-foreground/75 leading-relaxed">{sentence}</span>
+            </li>
+          ))}
+      </ul>
 
       {/* Entry Signal */}
       {analysis.entrySignal && (

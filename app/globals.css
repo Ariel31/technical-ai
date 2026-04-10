@@ -62,6 +62,23 @@ body {
   background: var(--muted-foreground);
 }
 
+/* Prominent scrollbar for the right analysis panel */
+.scrollbar-prominent::-webkit-scrollbar {
+  width: 6px;
+}
+.scrollbar-prominent::-webkit-scrollbar-track {
+  background: var(--surface-elevated);
+  border-radius: 3px;
+}
+.scrollbar-prominent::-webkit-scrollbar-thumb {
+  background: var(--accent);
+  border-radius: 3px;
+  opacity: 0.7;
+}
+.scrollbar-prominent::-webkit-scrollbar-thumb:hover {
+  background: #818cf8;
+}
+
 /* ─── Custom Animations ─────────────────────────────────────────────────────── */
 
 @keyframes shimmer {

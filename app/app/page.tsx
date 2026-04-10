@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import React, { useState, useCallback, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { Brain, Loader2, Bookmark, BookmarkCheck, Share2 } from "lucide-react";
+import { Brain, Loader2, Bookmark, BookmarkCheck, Share2, PanelRightClose, PanelRightOpen } from "lucide-react";
 import type { AnalysisResult, AppStatus, OHLCVBar, StockDataResponse } from "@/lib/types";
 import type { TradingChartHandle } from "@/components/chart/TradingChart";
 import TickerInput from "@/components/ui/TickerInput";
@@ -36,6 +36,8 @@ function AppContent() {
   const [showKeyLevels, setShowKeyLevels] = useState(true);
   const [shareToast, setShareToast] = useState<"idle" | "uploading" | "copied" | "error">("idle");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [watchlistAdded, setWatchlistAdded] = useState(false);
   const [currentSetupId, setCurrentSetupId] = useState<string | null>(null);
   const [currentSetupStatus, setCurrentSetupStatus] = useState<string | null>(null);
   const [committedPrices, setCommittedPrices] = useState<{ entry: number; stop: number; target: number; direction: "long" | "short" } | null>(null);
@@ -369,7 +371,12 @@ function AppContent() {
             )}
             {status === "done" && ticker && meta && (
               <button
-                onClick={() => !isInWatchlist && addToWatchlist(ticker, meta.name)}
+                onClick={() => {
+                  if (isInWatchlist) return;
+                  addToWatchlist(ticker, meta.name);
+                  setWatchlistAdded(true);
+                  setTimeout(() => setWatchlistAdded(false), 2500);
+                }}
                 disabled={isInWatchlist}
                 title={isInWatchlist ? "Already in watchlist" : "Add to watchlist"}
                 className={cn(
@@ -423,36 +430,7 @@ function AppContent() {
           </div>
 
           {/* Chart Area */}
-          <div className="flex-1 relative p-3 min-w-0 min-h-0 flex flex-col gap-2">
-            {/* Toolbar */}
-            {status === "done" && bars.length > 0 && (
-              <div className="flex items-center justify-end shrink-0">
-                <button
-                  onClick={handleShare}
-                  disabled={shareToast === "uploading"}
-                  className={cn(
-                    "flex items-center gap-2 px-4 py-2 rounded-lg border font-medium text-sm transition-all duration-200 disabled:opacity-50",
-                    shareToast === "copied"
-                      ? "bg-bull/10 border-bull/40 text-bull"
-                      : shareToast === "error"
-                        ? "bg-bear/10 border-bear/40 text-bear"
-                        : "bg-surface border-border text-muted-foreground hover:text-foreground hover:border-accent/50 hover:bg-surface/80"
-                  )}
-                >
-                  {shareToast === "uploading" ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : shareToast === "copied" ? (
-                    <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none">
-                      <path d="M3 8l4 4 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  ) : (
-                    <Share2 className="w-4 h-4" />
-                  )}
-                  {shareToast === "uploading" ? "Uploading…" : shareToast === "copied" ? "Link copied!" : shareToast === "error" ? "Failed" : "Share chart"}
-                </button>
-              </div>
-            )}
-
+          <div className="flex-1 relative p-3 min-w-0 min-h-0 flex flex-col">
             <div className="relative flex-1 min-h-0 rounded-xl border border-border overflow-hidden">
 
               {bars.length > 0 && (
@@ -520,28 +498,107 @@ function AppContent() {
                 </div>
               )}
 
+              {/* Share button — top-right chart overlay */}
+              {status === "done" && bars.length > 0 && (
+                <div className="absolute top-3 right-3 z-10">
+                  <button
+                    onClick={handleShare}
+                    disabled={shareToast === "uploading"}
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-semibold transition-all duration-200 backdrop-blur-sm disabled:opacity-50",
+                      shareToast === "copied"
+                        ? "bg-bull/15 border-bull/40 text-bull"
+                        : shareToast === "error"
+                          ? "bg-bear/15 border-bear/40 text-bear"
+                          : "bg-surface/90 border-white/20 text-white/70 hover:text-white hover:border-white/40"
+                    )}
+                  >
+                    {shareToast === "uploading" ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : shareToast === "copied" ? (
+                      <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none">
+                        <path d="M3 8l4 4 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    ) : (
+                      <Share2 className="w-4 h-4" />
+                    )}
+                    {shareToast === "uploading" ? "Uploading…" : shareToast === "copied" ? "Copied!" : shareToast === "error" ? "Failed" : "Share"}
+                  </button>
+                </div>
+              )}
+
             </div>
           </div>
 
-          {/* Analysis Sidebar */}
-          {analysis && status === "done" && (
-            <aside className="w-80 shrink-0 border-l border-border overflow-y-auto bg-surface/50 backdrop-blur-sm p-4 pb-16 animate-fade-in">
-              <AnalysisPanel
-                analysis={analysis}
-                activePatternIds={activePatternIds}
-                onTogglePattern={handleTogglePattern}
-                onToggleAll={handleToggleAll}
-                onToggleKeyLevels={handleToggleKeyLevels}
-                showKeyLevels={showKeyLevels}
-                currency={meta?.currency ?? "USD"}
-                setupId={currentSetupId}
-                setupStatus={currentSetupStatus}
-                onVersionCommit={setCommittedPrices}
-              />
+          {/* Analysis Sidebar — shown during analysis (skeleton) and when done */}
+          {((analysis && status === "done") || (status === "analyzing" && bars.length > 0)) && (
+            <aside className={cn(
+              "shrink-0 border-l border-border bg-surface/50 backdrop-blur-sm flex flex-col h-full overflow-hidden transition-all duration-200",
+              rightCollapsed ? "w-10" : "w-80"
+            )}>
+              {/* Collapse toggle */}
+              <div className={cn(
+                "flex shrink-0 border-b border-border/50",
+                rightCollapsed ? "justify-center py-2.5" : "justify-end px-2 py-2"
+              )}>
+                <button
+                  onClick={() => setRightCollapsed((v) => !v)}
+                  title={rightCollapsed ? "Expand analysis" : "Collapse analysis"}
+                  className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-elevated transition-colors"
+                >
+                  {rightCollapsed
+                    ? <PanelRightOpen className="w-4 h-4" />
+                    : <PanelRightClose className="w-4 h-4" />
+                  }
+                </button>
+              </div>
+
+              {!rightCollapsed && (
+                <div className="flex-1 overflow-y-auto scrollbar-prominent">
+                  {status === "analyzing" && !analysis ? (
+                    /* Skeleton while AI is working */
+                    <div className="p-4 space-y-4 animate-pulse">
+                      <div className="h-16 rounded-xl bg-surface-elevated" />
+                      <div className="space-y-2 px-1">
+                        <div className="h-3 rounded-full bg-surface-elevated w-full" />
+                        <div className="h-3 rounded-full bg-surface-elevated w-4/5" />
+                        <div className="h-3 rounded-full bg-surface-elevated w-2/3" />
+                      </div>
+                      <div className="h-32 rounded-xl bg-surface-elevated" />
+                      <div className="h-4 rounded-full bg-surface-elevated w-1/3 mt-2" />
+                      <div className="h-16 rounded-xl bg-surface-elevated" />
+                      <div className="h-16 rounded-xl bg-surface-elevated" />
+                    </div>
+                  ) : analysis ? (
+                    <div className="p-4 pb-16 animate-fade-in">
+                      <AnalysisPanel
+                        analysis={analysis}
+                        activePatternIds={activePatternIds}
+                        onTogglePattern={handleTogglePattern}
+                        onToggleAll={handleToggleAll}
+                        onToggleKeyLevels={handleToggleKeyLevels}
+                        showKeyLevels={showKeyLevels}
+                        currency={meta?.currency ?? "USD"}
+                        setupId={currentSetupId}
+                        setupStatus={currentSetupStatus}
+                        onVersionCommit={setCommittedPrices}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </aside>
           )}
         </div>
       </main>
+
+      {/* Watchlist added toast */}
+      {watchlistAdded && (
+        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-4 py-2.5 rounded-xl border border-accent/30 bg-surface shadow-lg text-sm font-medium text-foreground animate-fade-in pointer-events-none">
+          <BookmarkCheck className="w-4 h-4 text-accent" />
+          Added to watchlist
+        </div>
+      )}
     </div>
   );
 }
