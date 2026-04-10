@@ -25,7 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
-import type { MarketSentiment, ScreenerPick, ScreenerResult, ScreenerStatus, TrackRecordStats } from "@/lib/types";
+import type { HotSectorResult, MarketSentiment, ScreenerPick, ScreenerResult, ScreenerStatus, TrackRecordStats } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { addToDraftStorage } from "@/hooks/useDraft";
 
@@ -238,6 +238,135 @@ function SentimentBanner({ sentiment }: { sentiment: MarketSentiment }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Tooltip ──────────────────────────────────────────────────────────────────
+
+function Tooltip({ children, text, className }: { children: React.ReactNode; text: string; className?: string }) {
+  return (
+    <span className={cn("relative group/tip inline-flex", className)}>
+      {children}
+      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-max max-w-[180px] rounded-lg border border-border bg-surface-elevated px-2.5 py-1.5 text-[11px] text-muted-foreground shadow-lg opacity-0 group-hover/tip:opacity-100 transition-opacity duration-150 z-50 text-center leading-snug">
+        {text}
+      </span>
+    </span>
+  );
+}
+
+// ─── Hot Sector Widget ────────────────────────────────────────────────────────
+
+const SECTOR_ICONS: Record<string, string> = {
+  "Energy":                 "⚡",
+  "Technology":             "💻",
+  "Financials":             "🏦",
+  "Healthcare":             "🧬",
+  "Industrials":            "⚙️",
+  "Consumer Discretionary": "🛍️",
+  "Consumer Staples":       "🛒",
+  "Materials":              "⛏️",
+  "Utilities":              "🔌",
+  "Real Estate":            "🏢",
+  "Communication Services": "📡",
+};
+
+function HotSectorWidget({ hotSector }: { hotSector: HotSectorResult }) {
+  const [activeIdx, setActiveIdx] = useState<0 | 1>(0);
+
+  if (hotSector.noLeader) {
+    return (
+      <div className="rounded-xl border border-border/60 bg-surface/40 px-4 py-3 mb-5 text-sm text-muted-foreground flex items-center gap-2">
+        <span className="text-base">〰️</span>
+        <span>No clear leading sector today — broad market conditions are mixed.</span>
+      </div>
+    );
+  }
+
+  const sector = activeIdx === 0 ? hotSector.primary : (hotSector.secondary ?? hotSector.primary);
+  const setups = activeIdx === 0 ? hotSector.setups : (hotSector.secondarySetups ?? hotSector.setups);
+  const rsPositive = sector.rs5d >= 0;
+
+  return (
+    <div className="rounded-xl border border-border/60 bg-surface/50 px-5 py-4 mb-5">
+      {/* Header row */}
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Hot Sector</span>
+        {hotSector.secondary && (
+          <div className="flex items-center gap-1 p-0.5 rounded-lg border border-border bg-surface">
+            {[hotSector.primary, hotSector.secondary].map((s, i) => (
+              <button
+                key={s.etf}
+                onClick={() => setActiveIdx(i as 0 | 1)}
+                className={cn(
+                  "px-3 py-1 rounded-md text-xs font-medium transition-all",
+                  activeIdx === i
+                    ? "bg-accent/15 border border-accent/30 text-accent"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {SECTOR_ICONS[s.name]} {s.name}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Two-column body */}
+      <div className="grid grid-cols-1 sm:grid-cols-[3fr_2fr] gap-4 sm:gap-0">
+        {/* Left: sector identity + stats */}
+        <div className="flex flex-col gap-1 sm:pr-4">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl leading-none">{SECTOR_ICONS[sector.name] ?? "📊"}</span>
+            <span className="text-xl font-semibold text-foreground">{sector.name}</span>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            {sector.etf}&nbsp;
+            <span className={cn("font-semibold", rsPositive ? "text-bull" : "text-bear")}>
+              {rsPositive ? "+" : ""}{sector.rs5d.toFixed(1)}% vs SPY
+            </span>
+            &nbsp;· 5d
+            &nbsp;·&nbsp;
+            <span>{sector.breadthPct.toFixed(0)}% above 50MA</span>
+            &nbsp;·&nbsp;
+            <span>Vol {sector.volumeRatio.toFixed(1)}×</span>
+          </p>
+        </div>
+
+        {/* Divider */}
+        <div className="sm:border-l sm:border-border/60 sm:pl-4">
+          {setups.length === 0 ? (
+            <p className="text-xs text-muted-foreground italic">No setups in this sector today.</p>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {/* Column headers */}
+              <div className="flex items-center gap-2 px-0 pb-0.5 mb-0.5 border-b border-border/40">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 w-12 shrink-0">Ticker</span>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 flex-1">Pattern</span>
+                <Tooltip text="Setup Quality + Trade Opportunity (0–200)" className="ml-auto shrink-0">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 cursor-default">Score</span>
+                </Tooltip>
+              </div>
+              {setups.map((s) => (
+                <div key={s.ticker} className="flex items-center gap-2 h-7">
+                  <span className="text-sm font-bold font-mono text-foreground w-12 shrink-0">{s.ticker}</span>
+                  <span className="text-[11px] px-1.5 py-0.5 rounded bg-surface-elevated text-muted-foreground border border-border/60 truncate max-w-[110px]">
+                    {s.primaryPattern}
+                  </span>
+                  <Tooltip text={`Setup Quality + Trade Opportunity = ${s.score}/200`} className="ml-auto shrink-0">
+                    <span className={cn(
+                      "text-xs font-bold font-mono cursor-default",
+                      s.score >= 140 ? "text-bull" : "text-accent"
+                    )}>
+                      {s.score}
+                    </span>
+                  </Tooltip>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -673,6 +802,9 @@ export default function LandingPage() {
       <>
         {/* Sentiment banner */}
         {sentiment && <SentimentBanner sentiment={sentiment} />}
+
+        {/* Hot sector widget */}
+        {result?.hotSector && <HotSectorWidget hotSector={result.hotSector} />}
 
         {/* Suppression notice */}
         {extremeSuppression && (

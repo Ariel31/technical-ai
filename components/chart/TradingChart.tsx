@@ -18,12 +18,21 @@ export interface TradingChartHandle {
   captureImage: () => Promise<string>;
 }
 
+export interface SetupBox {
+  entry: number;
+  stopLoss: number;
+  target: number;
+  direction: "long" | "short";
+  hasEntry: boolean;
+}
+
 interface TradingChartProps {
   bars: OHLCVBar[];
   analysis: AnalysisResult | null;
   activePatternIds: Set<string>;
   keyLevels: AnalysisResult["keyLevels"] | null;
   showKeyLevels: boolean;
+  setupBox?: SetupBox | null;
 }
 
 const CHART_THEME = {
@@ -45,6 +54,7 @@ const TradingChart = forwardRef<TradingChartHandle, TradingChartProps>(function 
   activePatternIds,
   keyLevels,
   showKeyLevels,
+  setupBox,
 }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -60,12 +70,12 @@ const TradingChart = forwardRef<TradingChartHandle, TradingChartProps>(function 
   // Refs so the timeScale subscription never closes over stale values
   const analysisRef = useRef(analysis);
   const activePatternIdsRef = useRef(activePatternIds);
-  useEffect(() => {
-    analysisRef.current = analysis;
-  }, [analysis]);
-  useEffect(() => {
-    activePatternIdsRef.current = activePatternIds;
-  }, [activePatternIds]);
+  const setupBoxRef = useRef(setupBox);
+  const barsRef = useRef(bars);
+  useEffect(() => { analysisRef.current = analysis; }, [analysis]);
+  useEffect(() => { activePatternIdsRef.current = activePatternIds; }, [activePatternIds]);
+  useEffect(() => { setupBoxRef.current = setupBox; }, [setupBox]);
+  useEffect(() => { barsRef.current = bars; }, [bars]);
 
   // ─── Canvas curve drawing (Catmull-Rom → cubic bezier) ────────────────────
   const drawCurvesOnCanvas = useCallback(() => {
@@ -85,6 +95,97 @@ const TradingChart = forwardRef<TradingChartHandle, TradingChartProps>(function 
     canvas.width = w * dpr;
     canvas.height = h * dpr;
     ctx.scale(dpr, dpr);
+
+    // ── Setup box — drawn first so curves render on top ───────────────────────
+    const box = setupBoxRef.current;
+    if (box) {
+      // priceToCoordinate returns null for prices outside the visible range.
+      // Clamp to canvas edges so the box always renders.
+      const lastClose = barsRef.current[barsRef.current.length - 1]?.close ?? box.entry;
+      const resolveY = (price: number): number => {
+        const coord = candleSeries.priceToCoordinate(price);
+        if (coord !== null) return coord as number;
+        return price > lastClose ? 2 : h - 2;
+      };
+      const entryY  = resolveY(box.entry);
+      const stopY   = resolveY(box.stopLoss);
+      const targetY = resolveY(box.target);
+
+      const priceScaleWidth = 65;
+      const chartW = w - priceScaleWidth;
+      const x0 = Math.round(chartW * 0.80);
+      const x1 = chartW;
+
+      const alpha = box.hasEntry ? 1 : 0.4; // dim when no confirmed entry
+
+      // Profit zone (entry → target)
+      const profitTop    = Math.min(entryY, targetY);
+      const profitBottom = Math.max(entryY, targetY);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = "rgba(34,197,94,0.15)";
+      ctx.fillRect(x0, profitTop, x1 - x0, profitBottom - profitTop);
+      ctx.strokeStyle = "rgba(34,197,94,0.70)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(x0, profitTop);    ctx.lineTo(x1, profitTop);
+      ctx.moveTo(x0, profitBottom); ctx.lineTo(x1, profitBottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x0, profitTop); ctx.lineTo(x0, profitBottom);
+      ctx.stroke();
+      ctx.restore();
+
+      // Loss zone (stop → entry)
+      const lossTop    = Math.min(entryY, stopY);
+      const lossBottom = Math.max(entryY, stopY);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = "rgba(239,68,68,0.15)";
+      ctx.fillRect(x0, lossTop, x1 - x0, lossBottom - lossTop);
+      ctx.strokeStyle = "rgba(239,68,68,0.70)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(x0, lossTop);    ctx.lineTo(x1, lossTop);
+      ctx.moveTo(x0, lossBottom); ctx.lineTo(x1, lossBottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x0, lossTop); ctx.lineTo(x0, lossBottom);
+      ctx.stroke();
+      ctx.restore();
+
+      // Labels
+      const pad = 6;
+      ctx.font = "bold 11px JetBrains Mono, monospace";
+      ctx.textAlign = "left";
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = "rgba(34,197,94,0.95)";
+      ctx.textBaseline = "top";
+      ctx.fillText(`Target  $${box.target.toFixed(2)}`, x0 + pad, profitTop + pad);
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = "rgba(200,210,220,0.95)";
+      ctx.textBaseline = "middle";
+      ctx.fillText(`Entry  $${box.entry.toFixed(2)}`, x0 + pad, entryY);
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = "rgba(239,68,68,0.95)";
+      ctx.textBaseline = "bottom";
+      ctx.fillText(`Stop  $${box.stopLoss.toFixed(2)}`, x0 + pad, lossBottom - pad);
+      ctx.restore();
+    }
 
     const currentAnalysis = analysisRef.current;
     const currentActiveIds = activePatternIdsRef.current;
@@ -203,6 +304,7 @@ const TradingChart = forwardRef<TradingChartHandle, TradingChartProps>(function 
           });
         });
       });
+
   }, []); // intentionally empty — reads latest state via refs
 
   // ─── Init chart ───────────────────────────────────────────────────────────
@@ -718,7 +820,7 @@ const TradingChart = forwardRef<TradingChartHandle, TradingChartProps>(function 
       <canvas
         ref={canvasRef}
         className="absolute inset-0 pointer-events-none"
-        style={{ width: "100%", height: "100%" }}
+        style={{ width: "100%", height: "100%", zIndex: 2 }}
       />
     </div>
   );

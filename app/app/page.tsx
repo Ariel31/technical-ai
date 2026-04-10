@@ -366,6 +366,13 @@ function AppContent() {
                   activePatternIds={activePatternIds}
                   keyLevels={analysis?.keyLevels ?? null}
                   showKeyLevels={showKeyLevels}
+                  setupBox={analysis?.entrySignal ? {
+                    entry: analysis.entrySignal.entryPrice,
+                    stopLoss: analysis.entrySignal.stopLoss,
+                    target: analysis.entrySignal.target,
+                    direction: analysis.entrySignal.direction,
+                    hasEntry: analysis.entrySignal.hasEntry,
+                  } : null}
                 />
               )}
 

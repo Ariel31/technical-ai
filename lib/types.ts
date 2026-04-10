@@ -333,6 +333,7 @@ export interface ScreenerResult {
   picks: ScreenerPick[];
   allCandidates?: CandidateSummary[];
   sentiment?: MarketSentiment;
+  hotSector?: HotSectorResult;
 }
 
 export type ScreenerStatus = "idle" | "scanning" | "analyzing" | "done" | "error";
@@ -350,6 +351,38 @@ export interface MarketSentiment {
   vix: number;
   adRatio: number;        // advancing / declining
   spyVs200ma: "above" | "below" | "near";
+}
+
+// ─── Hot Sector Types ───────────────────────────────────────────────────────────
+
+export interface SectorData {
+  name: string;       // e.g. "Energy"
+  etf: string;        // e.g. "XLE"
+  rs5d: number;       // sector_return_5d - spy_return_5d
+  rs20d: number;      // sector_return_20d - spy_return_20d
+  rsScore: number;    // (rs5d * 0.6) + (rs20d * 0.4)
+  breadthScore: number; // -1 | 0 | +1 | +2
+  volumeScore: number;  // -1 | 0 | +1 | +2
+  sectorScore: number;  // (rsScore * 5) + breadthScore + volumeScore
+  breadthPct: number;   // % of sector stocks above 50MA
+  volumeRatio: number;  // etf_volume_today / etf_20d_avg_volume
+  etfReturn5d: number;  // raw ETF 5d return (for display)
+}
+
+export interface HotSectorSetup {
+  ticker: string;
+  primaryPattern: string;
+  score: number;        // combined setupScore + opportunityScore
+  setupScore: number;
+  opportunityScore: number;
+}
+
+export interface HotSectorResult {
+  primary: SectorData;
+  secondary?: SectorData;   // only if within 10% of primary score
+  setups: HotSectorSetup[]; // top 3 from screener matching primary sector
+  secondarySetups?: HotSectorSetup[]; // top 3 from secondary sector
+  noLeader: boolean;        // true if no sector has positive rs5d
 }
 
 // ─── Setup Tracking Types ───────────────────────────────────────────────────────

@@ -42,16 +42,17 @@ export async function GET(request: Request) {
       return Response.json({ updated: 0, checked: 0 });
     }
 
-    // Batch-fetch current prices
+    // Batch-fetch recent bars for each unique ticker
     const uniqueTickers = [...new Set(rows.map((r) => r.ticker))];
-    const priceMap = new Map<string, number>();
+
+    interface BarSummary { high: number; low: number; close: number; time: number; }
+    const barsMap = new Map<string, BarSummary[]>();
 
     await Promise.allSettled(
       uniqueTickers.map(async (ticker) => {
         try {
-          const data = await fetchStockData({ ticker, timeframe: "1d", bars: 5 });
-          const last = data.bars[data.bars.length - 1];
-          if (last) priceMap.set(ticker, last.close);
+          const data = await fetchStockData({ ticker, timeframe: "1d", bars: 10 });
+          barsMap.set(ticker, data.bars.map((b) => ({ high: b.high, low: b.low, close: b.close, time: b.time })));
         } catch {
           // Skip — price unavailable for this ticker
         }
@@ -65,8 +66,13 @@ export async function GET(request: Request) {
     const statusChanges: Record<string, { from: string; to: string }> = {};
 
     for (const row of rows) {
-      const currentPrice = priceMap.get(row.ticker);
+      const allBars = barsMap.get(row.ticker) ?? [];
       const createdAt = new Date(row.created_at);
+      const createdTs = createdAt.getTime() / 1000; // bars use unix seconds
+
+      // Only consider bars on or after the setup was created
+      const recentBars = allBars.filter((b) => b.time >= createdTs);
+      const lastBar = recentBars[recentBars.length - 1];
 
       let newStatus: SetupStatus | null = null;
       let result: "WIN" | "LOSS" | null = null;
@@ -77,27 +83,28 @@ export async function GET(request: Request) {
       if (createdAt < expireCutoff) {
         newStatus = "EXPIRED";
         closedAt = now.toISOString();
-      } else if (currentPrice != null) {
+      } else if (lastBar != null) {
         const entry  = Number(row.entry_price);
         const stop   = Number(row.stop_price);
         const target = Number(row.target_price);
 
-        if (row.status === "PENDING" && currentPrice >= entry) {
+        // Use bar highs to catch intraday touches of the entry price
+        if (row.status === "PENDING" && recentBars.some((b) => b.high >= entry)) {
           newStatus = "ACTIVE";
           entryTriggeredAt = now.toISOString();
         }
 
         const effectiveStatus = newStatus ?? row.status;
         if (effectiveStatus === "ACTIVE") {
-          if (currentPrice >= target) {
+          if (lastBar.high >= target) {
             newStatus = "TARGET_HIT";
             result = "WIN";
-            returnPercent = +((currentPrice - entry) / entry * 100).toFixed(2);
+            returnPercent = +(Math.abs((target - entry) / entry) * 100).toFixed(2);
             closedAt = now.toISOString();
-          } else if (currentPrice <= stop) {
+          } else if (lastBar.low <= stop) {
             newStatus = "STOP_HIT";
             result = "LOSS";
-            returnPercent = +((currentPrice - entry) / entry * 100).toFixed(2);
+            returnPercent = +(Math.abs((stop - entry) / entry) * 100).toFixed(2);
             closedAt = now.toISOString();
           }
         }

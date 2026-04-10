@@ -156,7 +156,7 @@ function HistoryRow({ s }: { s: TrackedSetup }) {
         isWin ? "text-emerald-400" : isLoss ? "text-rose-400" : "text-muted-foreground"
       )}>
         {s.returnPercent != null
-          ? `${s.returnPercent >= 0 ? "+" : ""}${s.returnPercent.toFixed(1)}%`
+          ? `${s.result === "WIN" ? "+" : s.result === "LOSS" ? "-" : ""}${Math.abs(s.returnPercent).toFixed(1)}%`
           : "—"}
       </div>
 

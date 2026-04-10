@@ -11,7 +11,11 @@ import {
 } from "@/lib/screener";
 import { analyzeScreenerCandidates } from "@/lib/screener-ai";
 import { generateSignals } from "@/lib/pipeline";
-import type { CandidateSummary, MarketRegime, MarketSentiment, ScreenerCandidate } from "@/lib/types";
+import { computeSectorScores, TICKER_SECTOR } from "@/lib/sectors";
+import type {
+  CandidateSummary, MarketRegime, MarketSentiment,
+  ScreenerCandidate, HotSectorResult, HotSectorSetup,
+} from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -274,6 +278,54 @@ export async function POST(req: Request) {
           aboveSma200:      c.aboveSma200,
         }));
 
+        // ── Hot Sector scoring ────────────────────────────────────────────────
+        let hotSector: HotSectorResult | undefined;
+        try {
+          const spyBarsForSectors = (await fetchStockData({ ticker: "SPY", timeframe: "1d", bars: 25 })).bars;
+          const sectorScores = await computeSectorScores(spyBarsForSectors, deepCandidates);
+
+          // Only surface sectors with positive rs5d (actually outperforming SPY)
+          const hotSectors = sectorScores.filter((s) => s.rs5d > 0);
+
+          if (hotSectors.length === 0) {
+            hotSector = {
+              primary: sectorScores[0] ?? { name: "—", etf: "—", rs5d: 0, rs20d: 0, rsScore: 0, breadthScore: 0, volumeScore: 0, sectorScore: 0, breadthPct: 0, volumeRatio: 0, etfReturn5d: 0 },
+              setups: [],
+              noLeader: true,
+            };
+          } else {
+            const primary = hotSectors[0];
+            // Secondary if within 10% of primary score
+            const secondary = hotSectors[1] && primary.sectorScore > 0 &&
+              Math.abs(hotSectors[1].sectorScore - primary.sectorScore) / Math.abs(primary.sectorScore) <= 0.10
+              ? hotSectors[1] : undefined;
+
+            // Pull top 3 setups from allCandidates that belong to the hot sector
+            function getSetupsForSector(etf: string): HotSectorSetup[] {
+              return allCandidates
+                .filter((c) => TICKER_SECTOR[c.ticker] === etf)
+                .slice(0, 3)
+                .map((c) => ({
+                  ticker: c.ticker,
+                  primaryPattern: PATTERN_DISPLAY[c.pattern] ?? c.pattern,
+                  score: Math.round(c.setupScore + c.opportunityScore),
+                  setupScore: Math.round(c.setupScore),
+                  opportunityScore: Math.round(c.opportunityScore),
+                }));
+            }
+
+            hotSector = {
+              primary,
+              secondary,
+              setups: getSetupsForSector(primary.etf),
+              secondarySetups: secondary ? getSetupsForSector(secondary.etf) : undefined,
+              noLeader: false,
+            };
+          }
+        } catch (err) {
+          console.warn("[Screener] Sector scoring failed:", err);
+        }
+
         const screenerResult = {
           screenedAt: new Date().toISOString(),
           totalScanned: deepCandidates.length,
@@ -281,6 +333,7 @@ export async function POST(req: Request) {
           picks,
           allCandidates: candidateSummaries,
           sentiment,
+          hotSector,
         };
 
         send({ type: "done", result: screenerResult });
