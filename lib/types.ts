@@ -179,12 +179,21 @@ export interface ScreenerContext {
   confidence: number;
 }
 
+export interface ExistingSetup {
+  entryPrice: number;
+  stopLoss: number;
+  target: number;
+  direction: "long" | "short";
+}
+
 export interface AnalyzeRequest {
   ticker: string;
   bars: OHLCVBar[];
   indicators?: string[];
   /** When set, the chart analysis is anchored to a screener pick for consistency */
   screenerContext?: ScreenerContext;
+  /** When set, Gemini validates this locked-in setup rather than generating new levels */
+  existingSetup?: ExistingSetup;
 }
 
 export interface ApiError {

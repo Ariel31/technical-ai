@@ -12,6 +12,7 @@ import type {
   OHLCVBar,
   ChartCurve,
   ScreenerContext,
+  ExistingSetup,
 } from "./types";
 import { PATTERN_COLORS } from "./utils";
 
@@ -232,7 +233,8 @@ function buildPrompt(
   ticker: string,
   bars: OHLCVBar[],
   indicators: string[],
-  screenerContext?: ScreenerContext
+  screenerContext?: ScreenerContext,
+  existingSetup?: ExistingSetup
 ): string {
   // Limit to 100 bars to stay well within free-tier token limits
   const recentBars = bars.slice(-100);
@@ -266,7 +268,11 @@ function buildPrompt(
     ? `\nSCREENER CONTEXT: The algorithmic screener identified this as a ${screenerContext.direction.toUpperCase()} setup — pattern: ${screenerContext.pattern}, confidence ${screenerContext.confidence}%, entry $${screenerContext.entry}, stop $${screenerContext.stopLoss}, target $${screenerContext.target}. Your deep analysis should confirm or refine this. If the pattern is still valid, your entrySignal direction MUST match (${screenerContext.direction}). Only override the direction if you find clear evidence that the setup has materially changed since the scan.\n`
     : "";
 
-  return `Expert technical analyst. Analyze ${ticker} OHLCV data and identify chart patterns.${indicatorsSection}${screenerSection}
+  const existingSetupSection = existingSetup
+    ? `\nEXISTING LOCKED-IN SETUP: The user has committed to a ${existingSetup.direction.toUpperCase()} trade with Entry $${existingSetup.entryPrice}, Stop $${existingSetup.stopLoss}, Target $${existingSetup.target} (R/R ${((existingSetup.direction === "long" ? existingSetup.target - existingSetup.entryPrice : existingSetup.entryPrice - existingSetup.target) / Math.abs(existingSetup.entryPrice - existingSetup.stopLoss)).toFixed(2)}). VALIDATION TASK: Assess whether this setup is still technically valid given the current chart. If the key levels (support, structure, pattern) that justified the original setup are still intact — PRESERVE these exact entry/stop/target levels in your entrySignal (do not round or adjust them). Only propose different levels if the technical picture has materially changed (e.g. the setup's stop-loss level has been breached, the pattern has broken down, or a significantly better risk/reward opportunity now exists).\n`
+    : "";
+
+  return `Expert technical analyst. Analyze ${ticker} OHLCV data and identify chart patterns.${indicatorsSection}${screenerSection}${existingSetupSection}
 
 Columns: t=Unix timestamp(s), o=open, h=high, l=low, c=close, v=volume(k)
 Range: ${new Date(firstBar.time * 1000).toDateString()} → ${new Date(
@@ -889,7 +895,7 @@ function filterInvalidChannels(patterns: TechnicalPattern[], bars: OHLCVBar[]): 
 export async function analyzeChart(
   request: AnalyzeRequest
 ): Promise<AnalysisResult> {
-  const { ticker, bars, indicators = [], screenerContext } = request;
+  const { ticker, bars, indicators = [], screenerContext, existingSetup } = request;
 
   // ── Mock mode: set MOCK_AI=true in .env.local to skip Gemini ──────────────
   if (process.env.MOCK_AI === "true") {
@@ -913,7 +919,7 @@ export async function analyzeChart(
     generationConfig,
   });
 
-  const prompt = buildPrompt(ticker, bars, indicators, screenerContext);
+  const prompt = buildPrompt(ticker, bars, indicators, screenerContext, existingSetup);
   const result = await model.generateContent(prompt);
   const text = result.response.text();
 

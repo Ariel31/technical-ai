@@ -44,6 +44,12 @@ function AppContent() {
 
   const chartRef = useRef<TradingChartHandle>(null);
   const activeTickerRef = useRef<string>("");
+  const committedPricesRef = useRef<typeof committedPrices>(null);
+  const currentTickerRef = useRef<string>("");
+
+  // Keep refs in sync with state for use inside memoized callbacks
+  useEffect(() => { committedPricesRef.current = committedPrices; }, [committedPrices]);
+  useEffect(() => { currentTickerRef.current = ticker; }, [ticker]);
 
   const { watchlist, addToWatchlist, removeFromWatchlist, reanalyze, loadCachedAnalysis } =
     useWatchlist();
@@ -136,6 +142,9 @@ function AppContent() {
   // ── Main analysis flow ────────────────────────────────────────────────────────
 
   const handleAnalyze = useCallback(async (inputTicker: string) => {
+    // Capture committed setup before clearing state — used if re-analyzing same ticker
+    const previousCommitted = currentTickerRef.current === inputTicker ? committedPricesRef.current : null;
+
     activeTickerRef.current = inputTicker;
 
     setTicker(inputTicker);
@@ -177,7 +186,19 @@ function AppContent() {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticker: inputTicker, bars: stockData.bars, indicators: [] }),
+        body: JSON.stringify({
+          ticker: inputTicker,
+          bars: stockData.bars,
+          indicators: [],
+          ...(previousCommitted ? {
+            existingSetup: {
+              entryPrice: previousCommitted.entry,
+              stopLoss:   previousCommitted.stop,
+              target:     previousCommitted.target,
+              direction:  previousCommitted.direction,
+            },
+          } : {}),
+        }),
       });
 
       if (!res.ok || !res.body) throw new Error("AI analysis couldn't be completed. Please try again.");

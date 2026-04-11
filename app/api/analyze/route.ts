@@ -33,7 +33,7 @@ export async function POST(req: Request) {
     return Response.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { ticker, bars, indicators } = body;
+  const { ticker, bars, indicators, existingSetup } = body;
 
   if (!ticker || !Array.isArray(bars) || bars.length === 0) {
     return Response.json({ error: "Ticker and price data are required." }, { status: 400 });
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
     async start(controller) {
       try {
         controller.enqueue(sse({ type: "progress", message: "Analyzing chart patterns…" }));
-        const result = await analyzeChart({ ticker, bars, indicators });
+        const result = await analyzeChart({ ticker, bars, indicators, existingSetup });
         controller.enqueue(sse({ type: "done", result }));
       } catch (err) {
         const raw = err instanceof Error ? err.message : "Analysis failed";

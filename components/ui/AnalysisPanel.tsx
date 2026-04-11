@@ -1,7 +1,7 @@
 "use client";
 
 import { Brain, TrendingUp, TrendingDown, Minus, RefreshCw, ChevronDown, ChevronLeft, ChevronRight, Crosshair, Loader2, Sparkles, Send } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { AnalysisResult, TechnicalPattern, EntrySignal } from "@/lib/types";
 import { cn, formatPrice } from "@/lib/utils";
 import PatternCard from "./PatternCard";
@@ -65,6 +65,21 @@ function EntrySignalCard({
 
   const [userInput, setUserInput] = useState("");
   const [showRefine, setShowRefine] = useState(false);
+
+  // Sync committed version prices to the chart on initial load.
+  // onVersionCommit is otherwise only called on manual ← → navigation,
+  // which leaves the chart showing stale Gemini prices after a page reload.
+  useEffect(() => {
+    if (committedVersion && onVersionCommit) {
+      onVersionCommit({
+        entry:     committedVersion.entryPrice,
+        stop:      committedVersion.stopPrice,
+        target:    committedVersion.targetPrice,
+        direction: signal.direction,
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [committedVersion?.id]);
 
   const displayEntry  = committedVersion?.entryPrice  ?? signal.entryPrice;
   const displayStop   = committedVersion?.stopPrice   ?? signal.stopLoss;
