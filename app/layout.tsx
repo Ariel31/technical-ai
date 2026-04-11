@@ -41,6 +41,18 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className="bg-noise bg-grid antialiased">
+        {/* Mobile not-supported overlay — hidden on md+ */}
+        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-6 bg-background px-8 text-center md:hidden">
+          <div className="text-4xl">📊</div>
+          <div>
+            <p className="text-lg font-bold text-foreground mb-2">Desktop only for now</p>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              TechnicalAI is optimized for desktop screens.<br />
+              Please open it on a laptop or desktop to get the full experience.
+            </p>
+          </div>
+        </div>
+
         <SessionProvider>
           <QueryProvider>
             {children}
