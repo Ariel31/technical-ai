@@ -37,4 +37,13 @@ export const AI_MODELS = {
    * Dev:  gemini-2.5-flash-lite — cheapest
    */
   setupRefinement: process.env.GEMINI_MODEL_REFINEMENT ?? (isDev ? "gemini-2.5-flash-lite" : "gemini-2.5-flash"),
+
+  /**
+   * Setup validation — vision task: reads a chart screenshot, validates user-drawn levels.
+   * Requires multimodal (image) input + spatial reasoning.
+   *
+   * Prod: gemini-2.5-pro        — best vision + reasoning for level validation
+   * Dev:  gemini-2.5-flash-lite — cheapest with vision support
+   */
+  setupValidation: process.env.GEMINI_MODEL_VALIDATION ?? (isDev ? "gemini-2.5-flash-lite" : "gemini-2.5-pro"),
 } as const;
