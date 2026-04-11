@@ -768,12 +768,14 @@ export default function LandingPage() {
       </div>
     );
 
-    if (status === "idle") return (
+    if (status === "idle" && activeTab === "daily") return (
       <div className="flex flex-col items-center gap-4 py-16 text-muted-foreground">
         <Loader2 className="w-8 h-8 animate-spin" />
         <p className="text-sm">Loading…</p>
       </div>
     );
+
+    if (status === "idle" && activeTab === "custom") return null;
 
     if ((status as string) === "empty" && activeTab === "daily") return (
       <div className="flex flex-col items-center gap-5 py-16">

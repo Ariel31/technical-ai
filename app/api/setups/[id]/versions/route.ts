@@ -170,7 +170,7 @@ export async function POST(
       RETURNING *
     ` as Record<string, unknown>[];
 
-    return Response.json(rowToVersion(newRows[0]));
+    return Response.json({ ...rowToVersion(newRows[0]), disagreed: aiResult.disagreed });
   } catch (err) {
     console.error("[setups/versions] POST failed:", err);
     return Response.json({ error: "Refinement failed" }, { status: 500 });

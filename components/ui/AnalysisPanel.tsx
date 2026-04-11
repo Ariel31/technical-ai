@@ -1,6 +1,6 @@
 "use client";
 
-import { Brain, TrendingUp, TrendingDown, Minus, RefreshCw, ChevronDown, Crosshair, Loader2, Check, Sparkles, Send, ArrowUp, ArrowDown } from "lucide-react";
+import { Brain, TrendingUp, TrendingDown, Minus, RefreshCw, ChevronDown, ChevronLeft, ChevronRight, Crosshair, Loader2, Sparkles, Send } from "lucide-react";
 import { useState } from "react";
 import type { AnalysisResult, TechnicalPattern, EntrySignal } from "@/lib/types";
 import { cn, formatPrice } from "@/lib/utils";
@@ -43,13 +43,6 @@ const BIAS_CONFIG = {
   },
 };
 
-// Maps DB field names to short display labels for version diff badges
-const FIELD_LABELS: Record<string, string> = {
-  entry_price: "EP",
-  stop_price:  "SL",
-  target_price: "TP",
-};
-
 function EntrySignalCard({
   signal,
   currency,
@@ -67,10 +60,11 @@ function EntrySignalCard({
   const isTriggered = setupStatus === "ACTIVE";
   const canRefine   = !!(setupId && signal.hasEntry && signal.entryPrice > 0);
 
-  const { versions, committedVersion, isRefining, refinementError, refinementWarning, refine, commit } =
+  const { versions, committedVersion, isRefining, refinementError, refinementWarning, refinementDisagreed, refine, commit } =
     useSetupVersions(canRefine ? setupId! : null);
 
   const [userInput, setUserInput] = useState("");
+  const [showRefine, setShowRefine] = useState(false);
 
   const displayEntry  = committedVersion?.entryPrice  ?? signal.entryPrice;
   const displayStop   = committedVersion?.stopPrice   ?? signal.stopLoss;
@@ -78,6 +72,9 @@ function EntrySignalCard({
   const displayRr     = committedVersion?.rrRatio     ?? signal.riskRewardRatio;
 
   const hasVersions = versions.length > 1;
+  const committedIdx = versions.findIndex((v) => v.isCommitted);
+  const canGoPrev = committedIdx > 0;
+  const canGoNext = committedIdx < versions.length - 1 && committedIdx !== -1;
 
   async function handleRefine() {
     if (!userInput.trim() || isRefining) return;
@@ -103,24 +100,10 @@ function EntrySignalCard({
       <div className={cn("h-[2px] bg-gradient-to-r", accentLine)} />
 
       {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-2 px-4 py-3 bg-surface/50">
+      <div className="flex items-center gap-2 px-4 py-4 bg-surface/50">
         <Crosshair className={cn("w-4 h-4 shrink-0", isLong ? "text-bull" : "text-bear")} />
         <span className="text-sm font-bold text-foreground">Trade Setup</span>
-
-        {/* AI badge — shows when refinement is available */}
-        {canRefine && (
-          <span
-            title="Adjust entry, stop & target with AI"
-            className="flex items-center gap-1 px-2 py-1 rounded-md bg-violet-500/20 border border-violet-400/50 text-xs font-bold text-violet-300 select-none cursor-default shadow-[0_0_8px_rgba(139,92,246,0.3)]"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            AI
-          </span>
-        )}
-
         <div className="flex-1" />
-
-        {/* Direction badge */}
         <span className={cn(
           "text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border shrink-0",
           signal.hasEntry
@@ -133,61 +116,48 @@ function EntrySignalCard({
         </span>
       </div>
 
-      {/* ── Version switcher ─────────────────────────────────────────────── */}
-      {hasVersions && (
-        <div className="flex items-center gap-1.5 px-4 py-2 border-t border-border/30 bg-surface/20 flex-wrap">
-          <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold mr-1">
-            Version
-          </span>
-          {versions.map((v) => {
-            const isActive = v.isCommitted;
-            const diffFields = v.changedFields ?? [];
-            return (
-              <button
-                key={v.id}
-                onClick={() => !isActive && handleCommit(v.id, v)}
-                disabled={isActive}
-                title={v.changeSummary ?? (v.source === "ai" ? "AI original" : undefined)}
-                className={cn(
-                  "flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold transition-all border",
-                  isActive
-                    ? "bg-accent text-white border-accent cursor-default"
-                    : "bg-surface border-border text-muted-foreground hover:border-accent/50 hover:text-foreground active:scale-95"
-                )}
-              >
-                v{v.versionNumber}
-                {isActive && <Check className="w-2.5 h-2.5" />}
-                {/* Changed-field diff badges */}
-                {!isActive && diffFields.map((f) => {
-                  const label = FIELD_LABELS[f];
-                  if (!label) return null;
-                  // Determine direction: compare with previous version or signal
-                  const prevVersion = versions[v.versionNumber - 2];
-                  const prevVal = f === "entry_price" ? (prevVersion?.entryPrice ?? signal.entryPrice)
-                    : f === "stop_price" ? (prevVersion?.stopPrice ?? signal.stopLoss)
-                    : (prevVersion?.targetPrice ?? signal.target);
-                  const newVal = f === "entry_price" ? v.entryPrice
-                    : f === "stop_price" ? v.stopPrice
-                    : v.targetPrice;
-                  const went = newVal > prevVal ? "up" : newVal < prevVal ? "down" : null;
-                  return (
-                    <span key={f} className="flex items-center gap-0.5 text-violet-400/80">
-                      {label}
-                      {went === "up" && <ArrowUp className="w-2 h-2" />}
-                      {went === "down" && <ArrowDown className="w-2 h-2" />}
-                    </span>
-                  );
-                })}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
       {/* ── Price levels ─────────────────────────────────────────────────── */}
       {signal.hasEntry && (
-        <div className="px-4 py-3 space-y-2.5 border-t border-border/30">
-          <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="px-4 py-5 space-y-5 border-t border-border/30">
+          {/* Version nav — only when multiple versions exist */}
+          {hasVersions && (
+            <div className="flex items-center justify-between rounded-lg bg-surface-elevated border border-border/60 px-3 py-2">
+              <span className="text-xs font-semibold text-foreground/70">
+                Version {committedVersion?.versionNumber ?? 1}
+                <span className="text-muted-foreground font-normal"> / {versions.length}</span>
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => canGoPrev && handleCommit(versions[committedIdx - 1].id, versions[committedIdx - 1])}
+                  disabled={!canGoPrev}
+                  title={canGoPrev ? (versions[committedIdx - 1].changeSummary ?? undefined) : undefined}
+                  className={cn(
+                    "flex items-center justify-center w-7 h-7 rounded border transition-all",
+                    canGoPrev
+                      ? "border-border/60 text-foreground/70 hover:border-accent/50 hover:text-foreground hover:bg-accent/10 active:scale-95"
+                      : "border-border/30 text-border cursor-not-allowed",
+                  )}
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => canGoNext && handleCommit(versions[committedIdx + 1].id, versions[committedIdx + 1])}
+                  disabled={!canGoNext}
+                  title={canGoNext ? (versions[committedIdx + 1].changeSummary ?? undefined) : undefined}
+                  className={cn(
+                    "flex items-center justify-center w-7 h-7 rounded border transition-all",
+                    canGoNext
+                      ? "border-border/60 text-foreground/70 hover:border-accent/50 hover:text-foreground hover:bg-accent/10 active:scale-95"
+                      : "border-border/30 text-border cursor-not-allowed",
+                  )}
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-3 gap-3 text-center">
             {([
               { label: "Entry",  value: displayEntry,  textCls: "text-foreground", borderCls: "border-border/60" },
               { label: "Stop",   value: displayStop,   textCls: "text-bear",       borderCls: "border-bear/30"   },
@@ -196,12 +166,12 @@ function EntrySignalCard({
               <div
                 key={label}
                 className={cn(
-                  "rounded-lg border px-2 py-2.5 transition-all duration-300",
+                  "rounded-lg border px-2 py-3 transition-all duration-300",
                   borderCls,
                   isRefining ? "animate-pulse bg-surface/30" : "bg-surface/70",
                 )}
               >
-                <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">{label}</p>
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">{label}</p>
                 <p className={cn("text-base font-mono font-bold transition-opacity", textCls, isRefining && "opacity-30")}>
                   {formatPrice(value, currency)}
                 </p>
@@ -209,8 +179,8 @@ function EntrySignalCard({
             ))}
           </div>
 
-          <div className="flex items-center justify-between text-xs px-0.5">
-            <span className="text-muted-foreground">Risk / Reward</span>
+          <div className="flex items-center justify-between px-0.5">
+            <span className="text-xs text-muted-foreground">Risk / Reward</span>
             <span className={cn(
               "font-mono font-bold text-sm transition-opacity",
               (displayRr ?? 0) >= 2 ? "text-bull" : (displayRr ?? 0) >= 1 ? "text-yellow-400" : "text-bear",
@@ -219,46 +189,45 @@ function EntrySignalCard({
               1 : {(displayRr ?? 0).toFixed(1)}
             </span>
           </div>
+
+          {canRefine && !isTriggered && (
+            <button
+              onClick={() => setShowRefine((v) => !v)}
+              className={cn(
+                "w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-semibold transition-all",
+                showRefine
+                  ? "bg-violet-500/30 border-violet-400/70 text-white shadow-[0_0_12px_rgba(139,92,246,0.2)]"
+                  : "bg-violet-500/15 border-violet-400/50 text-violet-200 hover:bg-violet-500/25 hover:border-violet-400/70 hover:text-white hover:shadow-[0_0_12px_rgba(139,92,246,0.15)]",
+              )}
+            >
+              <Sparkles className="w-4 h-4" />
+              Adjust with AI
+            </button>
+          )}
         </div>
       )}
 
-      {/* ── Rationale ────────────────────────────────────────────────────── */}
-      <div className="px-4 py-2.5 border-t border-border/30">
-        <ul className="space-y-2">
-          {signal.rationale
-            .split(/(?<=[.!?])\s+/)
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .map((sentence, i) => (
-              <li key={i} className="flex items-start gap-2.5">
-                <span className="mt-[7px] w-1.5 h-1.5 rounded-full bg-accent/50 shrink-0" />
-                <span className="text-sm text-foreground/75 leading-relaxed">{sentence}</span>
-              </li>
-            ))}
-        </ul>
-      </div>
-
-      {/* ── AI prompt bar ────────────────────────────────────────────────── */}
-      {canRefine && !isTriggered && (
-        <div className="border-t border-violet-400/40 px-3 py-3 bg-violet-500/10">
-          <p className="text-[11px] font-bold text-violet-300 uppercase tracking-wider mb-2 px-0.5">Your take on this setup</p>
+      {/* ── AI refinement (collapsible) ───────────────────────────────────── */}
+      {canRefine && !isTriggered && showRefine && (
+        <div className="border-t border-violet-400/20 px-3 py-3 bg-violet-500/8">
           <div className={cn(
             "flex items-start gap-2.5 rounded-lg border px-3 py-2.5 transition-all",
             "bg-violet-950/40 border-violet-400/40",
             "focus-within:border-violet-300/70 focus-within:ring-2 focus-within:ring-violet-400/30",
           )}>
             <Sparkles className={cn(
-              "w-4 h-4 shrink-0 mt-0.5 transition-colors",
-              isRefining ? "text-violet-200 animate-pulse" : "text-violet-300",
+              "w-3.5 h-3.5 shrink-0 mt-1 transition-colors",
+              isRefining ? "text-violet-200 animate-pulse" : "text-violet-400",
             )} />
             <textarea
               rows={2}
               value={userInput}
               onChange={(e) => setUserInput(e.target.value.slice(0, 500))}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleRefine(); } }}
-              placeholder={`e.g. "I think resistance is stronger, tighten the target" or "entry feels too aggressive, pull back"`}
+              placeholder='e.g. "tighten the stop" or "entry feels too aggressive, pull back"'
               disabled={isRefining}
-              className="flex-1 min-w-0 bg-transparent text-sm text-foreground placeholder:text-violet-300/40 outline-none disabled:opacity-50 resize-none leading-relaxed"
+              autoFocus
+              className="flex-1 min-w-0 bg-transparent text-sm text-foreground placeholder:text-violet-300/30 outline-none disabled:opacity-50 resize-none leading-relaxed"
             />
             <button
               onClick={handleRefine}
@@ -277,8 +246,14 @@ function EntrySignalCard({
             </button>
           </div>
 
+          {refinementDisagreed && (
+            <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-500/8 px-3 py-2.5">
+              <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-1">AI disagreed — adjusted instead</p>
+              <p className="text-[11px] text-amber-300/90 leading-snug">{refinementDisagreed}</p>
+            </div>
+          )}
           {refinementWarning && (
-            <p className="text-[11px] text-yellow-500/80 mt-2 px-1 leading-snug">{refinementWarning}</p>
+            <p className="text-[11px] text-yellow-500/70 mt-2 px-1 leading-snug">{refinementWarning}</p>
           )}
           {refinementError && (
             <p className="text-[11px] text-bear/80 mt-2 px-1">{refinementError}</p>

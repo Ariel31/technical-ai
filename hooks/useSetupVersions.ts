@@ -9,6 +9,7 @@ export function useSetupVersions(setupId: string | null) {
   const [isRefining, setIsRefining]           = useState(false);
   const [refinementError, setRefinementError] = useState<string | null>(null);
   const [refinementWarning, setRefinementWarning] = useState<string | null>(null);
+  const [refinementDisagreed, setRefinementDisagreed] = useState<string | null>(null);
 
   useEffect(() => {
     if (!setupId) { setVersions([]); return; }
@@ -27,6 +28,7 @@ export function useSetupVersions(setupId: string | null) {
     setIsRefining(true);
     setRefinementError(null);
     setRefinementWarning(null);
+    setRefinementDisagreed(null);
 
     try {
       const res = await fetch(`/api/setups/${setupId}/versions`, {
@@ -50,6 +52,9 @@ export function useSetupVersions(setupId: string | null) {
         setVersions(Array.isArray(all) ? all : [data]);
       } else {
         setVersions((prev) => [...prev, data as SetupVersion]);
+      }
+      if (data.disagreed) {
+        setRefinementDisagreed(data.changeSummary ?? "AI disagreed and adjusted the levels.");
       }
       return true;
     } catch {
@@ -75,6 +80,7 @@ export function useSetupVersions(setupId: string | null) {
     isRefining,
     refinementError,
     refinementWarning,
+    refinementDisagreed,
     refine,
     commit,
   };

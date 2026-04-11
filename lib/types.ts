@@ -155,6 +155,7 @@ export interface SetupVersion {
   userInputText: string | null;
   isCommitted: boolean;
   belowMinimumRr: boolean;
+  disagreed?: boolean;
 }
 
 // ─── API Payloads ──────────────────────────────────────────────────────────────

@@ -41,7 +41,7 @@ export default function DraftPanel({
   return (
     <div className="flex flex-col flex-1 overflow-hidden border-t border-border">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2.5 hover:bg-surface-elevated/50 transition-colors">
+      <div className="flex items-center justify-between px-3 py-3 hover:bg-surface-elevated/50 transition-colors">
         <button
           onClick={() => setExpanded((v) => !v)}
           className="flex items-center gap-2 flex-1 text-left"
@@ -90,7 +90,7 @@ export default function DraftPanel({
               </p>
             </div>
           ) : (
-            <div className="p-2 flex flex-col gap-1">
+            <div className="px-2 py-2 flex flex-col gap-1.5">
               {draft.map((item) => (
                 <DraftItemCard
                   key={item.ticker}
@@ -102,11 +102,6 @@ export default function DraftPanel({
                   onReanalyze={() => onReanalyze(item.ticker)}
                 />
               ))}
-              {draft.length > 0 && (
-                <p className="text-[10px] text-muted-foreground/40 text-center pt-1 pb-0.5 select-none">
-                  ← → to navigate · ☆ to watchlist
-                </p>
-              )}
             </div>
           )}
         </div>
@@ -138,87 +133,88 @@ function DraftItemCard({
     <div
       onClick={isDone ? onSelect : undefined}
       className={cn(
-        "group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-l-2 transition-all",
+        "group relative flex items-center gap-2.5 px-3 py-2.5 rounded-lg border-l-2 border border-l-2 transition-all",
         isDone && isActive
-          ? "bg-accent/10 border-accent/30 border-l-emerald-500/50"
+          ? "bg-accent/10 border-accent/20 border-l-emerald-500 cursor-pointer"
           : isDone
-          ? "bg-surface-elevated/50 border-border/50 hover:bg-surface-elevated hover:border-border cursor-pointer border-l-emerald-500/50"
+          ? "bg-surface-elevated/40 border-border/40 hover:bg-surface-elevated hover:border-border cursor-pointer border-l-emerald-500/60"
           : isError
-          ? "bg-bear/5 border-bear/20 border-l-rose-500/50"
-          : "bg-surface/30 border-border/30 opacity-60 border-l-amber-500/30"
+          ? "bg-bear/5 border-bear/20 border-l-rose-500/60"
+          : "bg-surface/20 border-border/20 border-l-amber-500/30 opacity-60"
       )}
     >
-      {/* Status dot */}
-      <div className="shrink-0">
-        {isAnalyzing && <Loader2 className="w-3 h-3 text-accent animate-spin" />}
+      {/* Status indicator */}
+      <div className="shrink-0 w-4 flex items-center justify-center">
+        {isAnalyzing && <Loader2 className="w-3.5 h-3.5 text-accent animate-spin" />}
         {isDone && (
-          <div className={cn("w-1.5 h-1.5 rounded-full", isActive ? "bg-accent" : "bg-bull")} />
+          <div className={cn(
+            "w-2 h-2 rounded-full",
+            isActive ? "bg-accent shadow-[0_0_6px_rgba(99,102,241,0.6)]" : "bg-bull"
+          )} />
         )}
-        {isError && <AlertCircle className="w-3 h-3 text-bear" />}
+        {isError && <AlertCircle className="w-3.5 h-3.5 text-bear" />}
       </div>
 
-      {/* Ticker + direction badge */}
+      {/* Ticker + name */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
-          <span
-            className={cn(
-              "font-mono font-bold text-xs",
-              isDone ? (isActive ? "text-accent" : "text-foreground") : "text-muted-foreground"
-            )}
-          >
+          <span className={cn(
+            "font-mono font-bold text-xs tracking-wide",
+            isDone ? (isActive ? "text-accent" : "text-foreground") : "text-muted-foreground"
+          )}>
             {item.ticker}
           </span>
           {isAnalyzing && (
             <span className="text-[10px] text-muted-foreground">analyzing…</span>
           )}
           {isDone && item.entrySignal && (
-            <span
-              className={cn(
-                "text-[10px] font-bold px-1 py-px rounded tracking-widest shrink-0",
-                item.entrySignal.direction === "long"
-                  ? "bg-bull/15 text-bull"
-                  : "bg-bear/15 text-bear"
-              )}
-            >
+            <span className={cn(
+              "text-[10px] font-bold px-1.5 py-px rounded tracking-widest shrink-0",
+              item.entrySignal.direction === "long"
+                ? "bg-bull/15 text-bull"
+                : "bg-bear/15 text-bear"
+            )}>
               {item.entrySignal.direction === "long" ? "L" : "S"}
             </span>
           )}
         </div>
         {item.name && item.name !== item.ticker && (
-          <p className="text-[10px] text-muted-foreground truncate leading-tight">{item.name}</p>
+          <p className="text-[10px] text-muted-foreground/70 truncate leading-tight mt-0.5">{item.name}</p>
         )}
         {isError && item.errorMessage && (
-          <p className="text-[10px] text-bear truncate">{item.errorMessage}</p>
+          <p className="text-[10px] text-bear truncate mt-0.5">{item.errorMessage}</p>
         )}
       </div>
 
-      {/* Action buttons (visible on hover) */}
-      <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+      {/* Actions — bookmark always visible for done, rest on hover */}
+      <div className="flex items-center gap-0.5 shrink-0">
         {isDone && (
           <button
             onClick={(e) => { e.stopPropagation(); onPromote(); }}
-            className="p-1 rounded text-muted-foreground hover:text-accent hover:bg-accent/10 transition-colors"
+            className="p-1.5 rounded text-muted-foreground/60 hover:text-accent hover:bg-accent/10 transition-colors"
             title="Save to watchlist"
           >
-            <BookmarkPlus className="w-3 h-3" />
+            <BookmarkPlus className="w-3.5 h-3.5" />
           </button>
         )}
-        {(isDone || isError) && (
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          {(isDone || isError) && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onReanalyze(); }}
+              className="p-1.5 rounded text-muted-foreground/60 hover:text-accent hover:bg-accent/10 transition-colors"
+              title="Re-analyze"
+            >
+              <RefreshCw className="w-3 h-3" />
+            </button>
+          )}
           <button
-            onClick={(e) => { e.stopPropagation(); onReanalyze(); }}
-            className="p-1 rounded text-muted-foreground hover:text-accent hover:bg-accent/10 transition-colors"
-            title="Re-analyze"
+            onClick={(e) => { e.stopPropagation(); onRemove(); }}
+            className="p-1.5 rounded text-muted-foreground/60 hover:text-bear hover:bg-bear/10 transition-colors"
+            title="Remove"
           >
-            <RefreshCw className="w-3 h-3" />
+            <X className="w-3 h-3" />
           </button>
-        )}
-        <button
-          onClick={(e) => { e.stopPropagation(); onRemove(); }}
-          className="p-1 rounded text-muted-foreground hover:text-bear hover:bg-bear/10 transition-colors"
-          title="Remove from draft"
-        >
-          <X className="w-3 h-3" />
-        </button>
+        </div>
       </div>
     </div>
   );
