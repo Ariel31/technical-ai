@@ -28,18 +28,16 @@ export async function POST(
     if (versionRows.length === 0) return Response.json({ error: "Version not found" }, { status: 404 });
     const v = versionRows[0];
 
-    // Transaction: flip committed flag + mirror prices to parent
-    await sql.begin(async (tx) => {
-      await tx`UPDATE setup_versions SET is_committed = false WHERE setup_id = ${id}`;
-      await tx`UPDATE setup_versions SET is_committed = true  WHERE id = ${versionId}`;
-      await tx`
-        UPDATE setups SET
-          entry_price  = ${Number(v.entry_price)},
-          stop_price   = ${Number(v.stop_price)},
-          target_price = ${Number(v.target_price)}
-        WHERE id = ${id}
-      `;
-    });
+    // Flip committed flag + mirror prices to parent setup
+    await sql`UPDATE setup_versions SET is_committed = false WHERE setup_id = ${id}`;
+    await sql`UPDATE setup_versions SET is_committed = true  WHERE id = ${versionId}`;
+    await sql`
+      UPDATE setups SET
+        entry_price  = ${Number(v.entry_price)},
+        stop_price   = ${Number(v.stop_price)},
+        target_price = ${Number(v.target_price)}
+      WHERE id = ${id}
+    `;
 
     return Response.json({ ok: true });
   } catch (err) {
