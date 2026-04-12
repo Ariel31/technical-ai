@@ -17,7 +17,7 @@ export const AI_MODELS = {
    * Prod: gemini-2.5-pro        — best reasoning, handles complex coordinate logic
    * Dev:  gemini-2.5-flash-lite — fastest + cheapest stable model
    */
-  chartAnalysis: process.env.GEMINI_MODEL_CHART ?? (isDev ? "gemini-2.5-flash-lite" : "gemini-2.5-pro"),
+  chartAnalysis: process.env.GEMINI_MODEL_CHART ?? (isDev ? "gemini-2.5-flash-lite" : "gemini-3.1-pro-preview"),
 
   /**
    * Screener candidate ranking — structured JSON selection task.
@@ -45,5 +45,5 @@ export const AI_MODELS = {
    * Prod: gemini-2.5-pro        — best vision + reasoning for level validation
    * Dev:  gemini-2.5-flash-lite — cheapest with vision support
    */
-  setupValidation: process.env.GEMINI_MODEL_VALIDATION ?? (isDev ? "gemini-2.5-flash-lite" : "gemini-2.5-pro"),
+  setupValidation: process.env.GEMINI_MODEL_VALIDATION ?? (isDev ? "gemini-2.5-flash-lite" : "gemini-3.1-pro-preview"),
 } as const;

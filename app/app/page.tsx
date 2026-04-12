@@ -38,6 +38,7 @@ function AppContent() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [watchlistAdded, setWatchlistAdded] = useState(false);
+  const [watchlistError, setWatchlistError] = useState<string | null>(null);
   const [currentSetupId, setCurrentSetupId] = useState<string | null>(null);
   const [currentSetupStatus, setCurrentSetupStatus] = useState<string | null>(null);
   const [committedPrices, setCommittedPrices] = useState<{ entry: number; stop: number; target: number; direction: "long" | "short" } | null>(null);
@@ -392,11 +393,16 @@ function AppContent() {
             )}
             {status === "done" && ticker && meta && (
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (isInWatchlist) return;
-                  addToWatchlist(ticker, meta.name);
-                  setWatchlistAdded(true);
-                  setTimeout(() => setWatchlistAdded(false), 2500);
+                  const res = await addToWatchlist(ticker, meta.name);
+                  if (res.ok) {
+                    setWatchlistAdded(true);
+                    setTimeout(() => setWatchlistAdded(false), 2500);
+                  } else if (res.limitReached) {
+                    setWatchlistError(res.message ?? "Watchlist limit reached.");
+                    setTimeout(() => setWatchlistError(null), 5000);
+                  }
                 }}
                 disabled={isInWatchlist}
                 title={isInWatchlist ? "Already in watchlist" : "Add to watchlist"}
@@ -440,9 +446,14 @@ function AppContent() {
                 draft={draft}
                 activeTicker={ticker || undefined}
                 onSelect={handleWatchlistSelect}
-                onPromoteToWatchlist={(t, name) => {
-                  addToWatchlist(t, name);
-                  removeFromDraft(t);
+                onPromoteToWatchlist={async (t, name) => {
+                  const res = await addToWatchlist(t, name);
+                  if (res.ok) {
+                    removeFromDraft(t);
+                  } else if (res.limitReached) {
+                    setWatchlistError(res.message ?? "Watchlist limit reached.");
+                    setTimeout(() => setWatchlistError(null), 5000);
+                  }
                 }}
                 onRemove={removeFromDraft}
                 onReanalyze={reanalyzeDraft}
@@ -495,7 +506,7 @@ function AppContent() {
                     </div>
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono px-3 py-1.5 rounded-lg border border-border/60 bg-surface/80">
                       <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-                      Gemini 2.5 Pro
+                      Gemini 3.1 Pro
                     </div>
                   </div>
                 </div>
@@ -615,9 +626,18 @@ function AppContent() {
 
       {/* Watchlist added toast */}
       {watchlistAdded && (
-        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-4 py-2.5 rounded-xl border border-accent/30 bg-surface shadow-lg text-sm font-medium text-foreground animate-fade-in pointer-events-none">
+        <div className="fixed bottom-20 right-4 z-[60] flex items-center gap-2 px-4 py-2.5 rounded-xl border border-accent/30 bg-surface shadow-lg text-sm font-medium text-foreground animate-fade-in pointer-events-none">
           <BookmarkCheck className="w-4 h-4 text-accent" />
           Added to watchlist
+        </div>
+      )}
+
+      {/* Watchlist limit error toast */}
+      {watchlistError && (
+        <div className="fixed bottom-20 right-4 z-[60] flex items-center gap-3 px-4 py-3 rounded-xl border border-bear/40 bg-surface shadow-lg text-sm text-foreground animate-fade-in">
+          <span className="text-bear shrink-0">⚠</span>
+          <span>{watchlistError}</span>
+          <a href="/pricing" className="text-accent text-xs font-semibold hover:underline shrink-0">Upgrade →</a>
         </div>
       )}
     </div>

@@ -28,6 +28,8 @@ import { useSession } from "next-auth/react";
 import type { HotSectorResult, MarketSentiment, ScreenerPick, ScreenerResult, ScreenerStatus, TrackRecordStats } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { addToDraftStorage } from "@/hooks/useDraft";
+import { useUserPlan } from "@/hooks/useUserPlan";
+import UpgradePrompt from "@/components/ui/UpgradePrompt";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -690,6 +692,7 @@ export default function LandingPage() {
   } = useScan();
   const { data: session } = useSession();
   const isAdmin = session?.user?.email === process.env.NEXT_PUBLIC_ADMIN_EMAIL;
+  const { features } = useUserPlan();
 
   // ── Tab state ────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<"daily" | "custom">("daily");
@@ -838,40 +841,50 @@ export default function LandingPage() {
 
         {moreCandidates.length > 0 && (
           <div className="mt-8 animate-fade-in">
-            <div className="flex items-center justify-between mb-4">
-              <button
-                onClick={() => setShowAllCandidates((v) => !v)}
-                className="flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors group"
-              >
-                <ChevronRight className={cn("w-4 h-4 transition-transform", showAllCandidates && "rotate-90")} />
-                {showAllCandidates ? "Hide" : "More setups"}
-                <span className="text-xs font-normal bg-surface-elevated px-1.5 py-0.5 rounded-full">
-                  {moreCandidates.length}
-                </span>
-              </button>
-              {activeTab === "daily" && !showAllCandidates && (
-                <Link
-                  href="/setups"
-                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-accent transition-colors"
-                >
-                  View all <ChevronRight className="w-3 h-3" />
-                </Link>
-              )}
-            </div>
-
-            {showAllCandidates && (
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-3 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  <span className="w-28 shrink-0">Ticker</span>
-                  <span className="flex-1 hidden sm:block">Pattern</span>
-                  <span className="w-24 shrink-0">Score</span>
-                  <span className="w-14 shrink-0 text-right">5d</span>
-                  <span className="w-24 shrink-0" />
+            {!features.moreCandidates ? (
+              <UpgradePrompt
+                requiredPlan="pro"
+                featureLabel={`${moreCandidates.length} more setup${moreCandidates.length === 1 ? "" : "s"} found`}
+                variant="inline"
+              />
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-4">
+                  <button
+                    onClick={() => setShowAllCandidates((v) => !v)}
+                    className="flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors group"
+                  >
+                    <ChevronRight className={cn("w-4 h-4 transition-transform", showAllCandidates && "rotate-90")} />
+                    {showAllCandidates ? "Hide" : "More setups"}
+                    <span className="text-xs font-normal bg-surface-elevated px-1.5 py-0.5 rounded-full">
+                      {moreCandidates.length}
+                    </span>
+                  </button>
+                  {activeTab === "daily" && !showAllCandidates && (
+                    <Link
+                      href="/setups"
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-accent transition-colors"
+                    >
+                      View all <ChevronRight className="w-3 h-3" />
+                    </Link>
+                  )}
                 </div>
-                {moreCandidates.map((c) => (
-                  <CandidateRow key={c.ticker} candidate={c} />
-                ))}
-              </div>
+
+                {showAllCandidates && (
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center gap-3 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      <span className="w-28 shrink-0">Ticker</span>
+                      <span className="flex-1 hidden sm:block">Pattern</span>
+                      <span className="w-24 shrink-0">Score</span>
+                      <span className="w-14 shrink-0 text-right">5d</span>
+                      <span className="w-24 shrink-0" />
+                    </div>
+                    {moreCandidates.map((c) => (
+                      <CandidateRow key={c.ticker} candidate={c} />
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}

@@ -806,7 +806,7 @@ const TradingChart = forwardRef<TradingChartHandle, TradingChartProps>(function 
         ctx.textBaseline = "bottom";
         ctx.globalAlpha  = 0.6;
         ctx.fillStyle    = "#94a3b8";
-        ctx.fillText("TechnicalAI.app", 16 * dpr, h - 44 * dpr);
+        ctx.fillText("Signal Wingman", 16 * dpr, h - 44 * dpr);
         ctx.globalAlpha  = 1;
 
         resolve(out.toDataURL("image/png"));

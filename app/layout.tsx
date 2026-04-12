@@ -40,6 +40,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
+      <head>
+        {/* LemonSqueezy overlay checkout */}
+        <script src="https://assets.lemonsqueezy.com/lemon.js" defer></script>
+      </head>
       <body className="bg-noise bg-grid antialiased">
         {/* Mobile not-supported overlay — hidden on md+ */}
         <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-6 bg-background px-8 text-center md:hidden">

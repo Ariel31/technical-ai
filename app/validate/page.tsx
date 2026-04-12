@@ -7,6 +7,8 @@ import {
   TrendingUp, TrendingDown, ArrowRight, BookmarkCheck,
 } from "lucide-react";
 import AppHeader from "@/components/ui/AppHeader";
+import UpgradePrompt from "@/components/ui/UpgradePrompt";
+import { useUserPlan } from "@/hooks/useUserPlan";
 import { cn } from "@/lib/utils";
 import type { ValidationResult, ValidationResultA, ValidationResultB, LevelValidation } from "@/lib/validate-ai";
 
@@ -386,6 +388,7 @@ function ResultsB({
 
 export default function ValidatePage() {
   const router = useRouter();
+  const { features, isLoading: planLoading } = useUserPlan();
 
   const [image, setImage] = useState<{ dataUrl: string; base64: string; mimeType: string } | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -534,6 +537,23 @@ export default function ValidatePage() {
 
   const showResults = status === "done" && result !== null;
   const canValidate = !!image && !!ticker.trim() && status !== "validating";
+
+  // Edge-only gate
+  if (!planLoading && !features.validateOwnChart) {
+    return (
+      <div className="flex flex-col h-dvh overflow-hidden">
+        <AppHeader activePage="validate" />
+        <main className="flex-1 flex items-center justify-center p-8">
+          <UpgradePrompt
+            requiredPlan="edge"
+            featureLabel="Validate Your Own Chart"
+            variant="card"
+            className="max-w-md w-full"
+          />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-dvh overflow-hidden">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Bookmark,
   ChevronLeft,
@@ -22,7 +22,7 @@ interface WatchlistPanelProps {
   watchlist: WatchlistItem[];
   activeTicker?: string;
   onSelect: (ticker: string) => void;
-  onAddToWatchlist: (ticker: string, name: string) => void;
+  onAddToWatchlist: (ticker: string, name: string) => Promise<{ ok: boolean; limitReached?: boolean; message?: string }> | void;
   onRemove: (ticker: string) => void;
   onReanalyze: (ticker: string) => void;
   /** Collapse state controlled by parent */
@@ -49,7 +49,9 @@ export default function WatchlistPanel({
   >([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   // Debounced ticker search
@@ -88,11 +90,20 @@ export default function WatchlistPanel({
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, []);
 
-  function handleAdd(symbol: string, name: string) {
-    onAddToWatchlist(symbol, name);
+  const showError = useCallback((msg: string) => {
+    setAddError(msg);
+    if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+    errorTimerRef.current = setTimeout(() => setAddError(null), 5000);
+  }, []);
+
+  async function handleAdd(symbol: string, name: string) {
     setAddValue("");
     setAddResults([]);
     setIsDropdownOpen(false);
+    const res = await onAddToWatchlist(symbol, name);
+    if (res && !res.ok && res.limitReached) {
+      showError(res.message ?? "Watchlist limit reached. Upgrade to add more stocks.");
+    }
   }
 
   function handleSubmitAdd(e: React.FormEvent) {
@@ -214,8 +225,16 @@ export default function WatchlistPanel({
           </button>
         </form>
 
+        {/* Limit error banner */}
+        {addError && (
+          <div className="absolute top-full mt-1 left-3 right-3 z-50 rounded-xl border border-bear/40 bg-bear/10 px-3 py-2.5 text-xs text-bear leading-relaxed shadow-lg">
+            {addError}{" "}
+            <a href="/pricing" className="underline font-semibold hover:text-bear/80">View plans →</a>
+          </div>
+        )}
+
         {/* Autocomplete dropdown */}
-        {isDropdownOpen && addResults.length > 0 && (
+        {!addError && isDropdownOpen && addResults.length > 0 && (
           <div className="absolute top-full mt-1 left-3 right-3 z-50 rounded-xl border border-border bg-surface/95 backdrop-blur-md shadow-2xl overflow-hidden">
             {addResults.map((r) => {
               const alreadyAdded = watchlist.some((item) => item.ticker === r.symbol);

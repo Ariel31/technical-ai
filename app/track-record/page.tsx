@@ -4,6 +4,8 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import AppHeader from "@/components/ui/AppHeader";
+import UpgradePrompt from "@/components/ui/UpgradePrompt";
+import { useUserPlan } from "@/hooks/useUserPlan";
 import {
   Trophy,
   RefreshCw,
@@ -194,6 +196,7 @@ function HistoryRow({ s }: { s: TrackedSetup }) {
 
 export default function TrackRecordPage() {
   const queryClient = useQueryClient();
+  const { features, isLoading: planLoading } = useUserPlan();
   const [tab, setTab] = useState<"live" | "history">("live");
   const [refreshing, setRefreshing] = useState(false);
 
@@ -247,6 +250,23 @@ export default function TrackRecordPage() {
   const expectancy = stats && stats.wins + stats.losses > 0
     ? +((stats.winRate / 100) * stats.avgWin - (1 - stats.winRate / 100) * Math.abs(stats.avgLoss)).toFixed(1)
     : null;
+
+  // Pro+ gate
+  if (!planLoading && !features.trackRecord) {
+    return (
+      <div className="min-h-screen flex flex-col bg-background">
+        <AppHeader activePage="track-record" />
+        <main className="flex-1 flex items-center justify-center p-8">
+          <UpgradePrompt
+            requiredPlan="pro"
+            featureLabel="Track Record"
+            variant="card"
+            className="max-w-md w-full"
+          />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-background">

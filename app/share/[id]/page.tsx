@@ -69,7 +69,7 @@ export default async function SharePage({ params }: Props) {
       <div className="flex items-center gap-2 text-xs text-[#94a3b8]">
         <span>Powered by</span>
         <Link href="/" className="text-[#94a3b8] hover:text-white transition-colors font-semibold">
-          TechnicalAI.app
+          Signal Wingman
         </Link>
       </div>
 

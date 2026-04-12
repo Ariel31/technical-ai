@@ -18,6 +18,8 @@ import {
 import type { CandidateSummary, MarketSentiment, ScreenerResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { addToDraftStorage } from "@/hooks/useDraft";
+import { useUserPlan } from "@/hooks/useUserPlan";
+import UpgradePrompt from "@/components/ui/UpgradePrompt";
 
 // ─── Sentiment banner ─────────────────────────────────────────────────────────
 
@@ -254,6 +256,7 @@ function CandidateCard({ c }: { c: CandidateSummary }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function SetupsPage() {
+  const { features, isLoading: planLoading } = useUserPlan();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [result, setResult] = useState<ScreenerResult | null>(null);
@@ -329,8 +332,18 @@ export default function SetupsPage() {
           </Link>
         </div>
 
+        {/* Plan gate */}
+        {!planLoading && !features.moreCandidates && (
+          <UpgradePrompt
+            requiredPlan="pro"
+            featureLabel="Full screener — all setups"
+            variant="card"
+            className="mt-4"
+          />
+        )}
+
         {/* Loading */}
-        {loading && (
+        {!planLoading && features.moreCandidates && loading && (
           <div className="flex items-center justify-center py-20 gap-3 text-muted-foreground">
             <Loader2 className="w-5 h-5 animate-spin" />
             Loading setups…
@@ -338,7 +351,7 @@ export default function SetupsPage() {
         )}
 
         {/* Error */}
-        {!loading && error && (
+        {!planLoading && features.moreCandidates && !loading && error && (
           <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
             <AlertCircle className="w-8 h-8" />
             <p>{error}</p>
@@ -347,7 +360,7 @@ export default function SetupsPage() {
         )}
 
         {/* No data */}
-        {!loading && !error && candidates.length === 0 && (
+        {!planLoading && features.moreCandidates && !loading && !error && candidates.length === 0 && (
           <div className="flex flex-col items-center gap-4 py-16 text-center">
             <div className="p-3 rounded-full border border-border bg-surface">
               <Activity className="w-6 h-6 text-muted-foreground" />
@@ -368,7 +381,7 @@ export default function SetupsPage() {
         )}
 
         {/* Controls + grid */}
-        {!loading && candidates.length > 0 && (
+        {!planLoading && features.moreCandidates && !loading && candidates.length > 0 && (
           <>
             {sentiment && <SentimentBanner sentiment={sentiment} />}
 

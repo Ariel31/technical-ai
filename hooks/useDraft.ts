@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { WatchlistItem } from "@/lib/types";
+import { useUserPlan } from "@/hooks/useUserPlan";
+import { draftExpiryMs } from "@/lib/plans";
 
 const STORAGE_KEY = "draft_items";
 const MAX_CONCURRENT = 2;
@@ -90,6 +92,7 @@ export function useDraft() {
   const [draft, setDraft] = useState<DraftItem[]>([]);
   const activeCountRef = useRef(0);
   const pendingQueueRef = useRef<string[]>([]);
+  const { plan, limits } = useUserPlan();
 
   const updateItem = useCallback((ticker: string, updates: Partial<DraftItem>) => {
     setDraft((prev) =>
@@ -193,13 +196,24 @@ export function useDraft() {
     };
   }, [analyzeItem]);
 
-  // ── Load from localStorage on mount ──────────────────────────────────────
+  // ── Load from localStorage on mount — filter expired items ───────────────
 
   useEffect(() => {
     const stored = loadStoredDraft();
     if (stored.length === 0) return;
 
-    const items: DraftItem[] = stored.map((s) => ({
+    // Filter out items older than the current plan's expiry window
+    const expiryMs = draftExpiryMs(plan);
+    const now = Date.now();
+    const valid = stored.filter((s) => now - s.addedAt < expiryMs);
+
+    if (valid.length < stored.length) {
+      saveStoredDraft(valid);
+    }
+
+    if (valid.length === 0) return;
+
+    const items: DraftItem[] = valid.map((s) => ({
       ticker:  s.ticker,
       name:    s.name,
       status:  "analyzing" as const,
@@ -215,9 +229,20 @@ export function useDraft() {
   // ── Public API ────────────────────────────────────────────────────────────
 
   const addToDraft = useCallback(
-    (ticker: string, name: string) => {
+    (ticker: string, name: string): { ok: boolean; limitReached?: boolean } => {
+      let result: { ok: boolean; limitReached?: boolean } = { ok: false };
+
       setDraft((prev) => {
-        if (prev.some((i) => i.ticker === ticker)) return prev;
+        if (prev.some((i) => i.ticker === ticker)) {
+          result = { ok: true }; // already in draft — idempotent
+          return prev;
+        }
+
+        // Enforce slot limit
+        if (prev.length >= limits.draftSlots) {
+          result = { ok: false, limitReached: true };
+          return prev;
+        }
 
         // Persist to localStorage
         const stored = loadStoredDraft();
@@ -225,14 +250,19 @@ export function useDraft() {
           saveStoredDraft([...stored, { ticker, name, addedAt: Date.now() }]);
         }
 
+        result = { ok: true };
         return [
           ...prev,
           { ticker, name, status: "analyzing" as const, addedAt: Date.now() },
         ];
       });
-      queueAnalysis(ticker);
+
+      if (result.ok && !result.limitReached) {
+        queueAnalysis(ticker);
+      }
+      return result;
     },
-    [queueAnalysis]
+    [queueAnalysis, limits.draftSlots]
   );
 
   const removeFromDraft = useCallback((ticker: string) => {
@@ -251,5 +281,5 @@ export function useDraft() {
     [updateItem, queueAnalysis]
   );
 
-  return { draft, addToDraft, removeFromDraft, reanalyzeDraft };
+  return { draft, addToDraft, removeFromDraft, reanalyzeDraft, draftLimit: limits.draftSlots, plan };
 }

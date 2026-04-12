@@ -251,7 +251,7 @@ export function useWatchlist() {
   // ── Public API ───────────────────────────────────────────────────────────────
 
   const addToWatchlist = useCallback(
-    async (ticker: string, name: string) => {
+    async (ticker: string, name: string): Promise<{ ok: boolean; limitReached?: boolean; message?: string }> => {
       // Optimistic UI update
       setWatchlist((prev) => {
         if (prev.some((item) => item.ticker === ticker)) return prev;
@@ -262,13 +262,21 @@ export function useWatchlist() {
       });
 
       // Persist to DB
-      await fetch("/api/watchlist", {
+      const res = await fetch("/api/watchlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ticker, name }),
-      }).catch(() => { /* non-fatal */ });
+      }).catch(() => null);
+
+      if (res?.status === 403) {
+        // Revert optimistic update — limit was reached
+        setWatchlist((prev) => prev.filter((item) => item.ticker !== ticker));
+        const body = await res.json().catch(() => ({}));
+        return { ok: false, limitReached: true, message: body.message };
+      }
 
       analyzeInBackground(ticker, false);
+      return { ok: true };
     },
     [analyzeInBackground]
   );

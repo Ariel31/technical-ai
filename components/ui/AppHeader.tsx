@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Activity, TrendingUp, BarChart2, Trophy, ScanSearch } from "lucide-react";
+import { Activity, TrendingUp, BarChart2, Trophy, ScanSearch, Gem } from "lucide-react";
 import { cn } from "@/lib/utils";
 import UserMenu from "@/components/ui/UserMenu";
 
-export type ActivePage = "home" | "chart" | "validate" | "track-record" | null;
+export type ActivePage = "home" | "chart" | "validate" | "track-record" | "pricing" | null;
 
 interface AppHeaderProps {
   /** Which nav item is currently active */
@@ -118,6 +118,22 @@ export default function AppHeader({
             <Trophy className="w-4 h-4" />
             <span className="hidden sm:inline">Track Record</span>
             <span className="sm:hidden">Record</span>
+          </Link>
+
+          <div className="w-px h-4 bg-border mx-0.5" />
+
+          {/* Pricing */}
+          <Link
+            href="/pricing"
+            className={cn(
+              "flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium transition-colors",
+              activePage === "pricing"
+                ? "bg-accent/20 text-accent font-semibold"
+                : "text-foreground/60 hover:text-foreground hover:bg-surface-elevated"
+            )}
+          >
+            <Gem className="w-4 h-4" />
+            <span className="hidden sm:inline">Pricing</span>
           </Link>
         </nav>
 
