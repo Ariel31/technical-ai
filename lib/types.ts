@@ -487,3 +487,66 @@ export interface CachedAnalysis {
   result: AnalysisResult;
   meta: { name: string; currency: string; exchange: string };
 }
+
+// ─── Momentum Strategy Types ────────────────────────────────────────────────────
+
+export interface MomentumPosition {
+  entry_date: string;       // YYYY-MM-DD
+  entry_price: number;
+  shares: number;
+  cost_basis: number;
+  name?: string;            // company name, filled on fetch
+}
+
+export interface MomentumPortfolioState {
+  started: string;                              // YYYY-MM-DD
+  initial_capital: number;
+  last_rebalance: string;                       // YYYY-MM-DD
+  cash: number;
+  spy_price_at_start: number;
+  positions: Record<string, MomentumPosition>; // keyed by ticker
+}
+
+export interface MomentumPick {
+  ticker: string;
+  name: string;
+  momentum: number;         // 12-1 return as decimal (0.45 = 45%)
+  currentPrice: number;
+  priceT252: number;        // close ~252 trading days ago
+  priceT21: number;         // close ~21 trading days ago
+  rank: number;             // 1 = highest momentum
+}
+
+export interface MomentumTrade {
+  id: string;
+  date: string;             // YYYY-MM-DD
+  ticker: string;
+  action: 'BUY' | 'SELL';
+  price: number;
+  shares: number;
+  cost_basis: number;
+  proceeds?: number;
+  pnl?: number;
+  pnl_pct?: number;
+  entry_date?: string;
+  exit_reason?: 'rebalance' | 'stop_loss';
+}
+
+export interface RebalanceDiff {
+  to_sell: string[];
+  to_buy: string[];
+  to_hold: string[];
+  picks: MomentumPick[];
+}
+
+export interface MomentumPositionLive extends MomentumPosition {
+  ticker: string;
+  name: string;
+  current_price: number;
+  market_value: number;
+  pnl: number;
+  pnl_pct: number;
+  weight_pct: number;       // % of total portfolio
+  stop_price: number;       // entry_price * 0.80
+  stop_triggered: boolean;
+}
