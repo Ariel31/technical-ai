@@ -76,6 +76,7 @@ export async function GET() {
     return {
       ...pos,
       ticker,
+      name: pos.name ?? ticker,
       current_price: cp,
       market_value: marketValue,
       pnl,
